@@ -4,7 +4,11 @@
 
 #include "/shader.h"
 
+#ifdef YS_DH
+#include "/common/dh_vertex.glsl"
+#else
 attribute vec4 mc_Entity;
+#endif
 
 uniform int fogShape;
 uniform int isEyeInWater;
@@ -67,12 +71,18 @@ float getWaterDiffuse(float skyLight) {
 #endif
 
 void main() {
+   #ifdef YS_DH
+      ysSetDhMaterial();
+   #endif
 	vec4 modelViewPos = gl_ModelViewMatrix * gl_Vertex;
 	gl_Position = ftransform();
 
 	color = gl_Color;
 	texUV = (gl_TextureMatrix[0] * gl_MultiTexCoord0).st;
 	lightUV = (gl_TextureMatrix[1] * gl_MultiTexCoord1).st;
+   #ifdef YS_DH
+      lightUV = gl_MultiTexCoord2.st;
+   #endif
 	shadingNormal = normalize(gl_NormalMatrix * gl_Normal);
 	normal = vec4(0.5 + 0.5 * gl_Normal, 1.0);
 	isWater = float(isWaterBlock(mc_Entity.x));

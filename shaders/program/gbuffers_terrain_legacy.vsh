@@ -4,7 +4,11 @@
 
 #include "/shader.h"
 
+#ifdef YS_DH
+#include "/common/dh_vertex.glsl"
+#else
 attribute vec4 mc_Entity;
+#endif
 
 uniform float fogEnd;
 uniform float fogStart;
@@ -54,13 +58,22 @@ varying float diffuse;
 #endif
 
 void main() {
+   #ifdef YS_DH
+      ysSetDhMaterial();
+   #endif
    gl_Position = ftransform();
 
    lightUV = (gl_TextureMatrix[1] * gl_MultiTexCoord1).st;
+   #ifdef YS_DH
+      lightUV = gl_MultiTexCoord2.st;
+   #endif
    lmcoord = getNormalizedLmcoord(lightUV);
    texUV = (gl_TextureMatrix[0] * gl_MultiTexCoord0).st;
    normal = normalize(gl_NormalMatrix * gl_Normal);
    color = gl_Color;
+   #ifdef YS_DH
+      color.a = 1.0; // DH alpha is opacity, not baked ambient occlusion.
+   #endif
    foliageWindMask = float(isFoliageWindBlock(mc_Entity.x));
 
    isLava = float(mc_Entity.x == 10068.0);

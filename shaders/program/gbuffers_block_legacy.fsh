@@ -1,3 +1,4 @@
+uniform mat4 gbufferProjection;
 #define gbuffers_block_legacy
 
 #include "/shader.h"

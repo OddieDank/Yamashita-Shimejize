@@ -1,0 +1,3 @@
+
+option.DH_SHADOWS=Sombras de Distant Horizons
+option.DH_SHADOWS.comment=Permite que el terreno lejano proyecte sombras dentro de la distancia configurada. Aumenta el coste de renderizado.

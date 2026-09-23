@@ -6,10 +6,12 @@ uniform sampler2D colortex0;
 uniform sampler2D colortex1; // pre-extracted bloom source from composite2
 uniform sampler2D colortex2;
 uniform sampler2D depthtex0;
+uniform mat4 gbufferProjectionInverse;
 uniform sampler2D depthtex1;
 uniform float viewWidth, viewHeight;
 uniform float near, far;
 
+#include "/common/scene_depth.glsl"
 varying vec2 texcoord;
 varying float twinkleFactor;
 #include "/common/math.glsl"
@@ -37,12 +39,12 @@ float getForegroundHandMask(vec2 uv) {
 }
 
 float getBloomDepthWeight(float centerDepth, float centerLinearDepth, vec2 sampleCoord) {
-    if (centerDepth >= 0.9999) return 1.0;
+    if (centerDepth >= 1.0) return 1.0;
 
-    float sampleDepth = texture2D(depthtex0, sampleCoord).r;
-    if (sampleDepth >= 0.9999) return 0.0;
+    float sampleDepth = ysSceneDepthMetric(sampleCoord);
+    if (sampleDepth >= 1.0) return 0.0;
 
-    float sampleLinearDepth = linearizeDepthValue(sampleDepth, near, far);
+    float sampleLinearDepth = ysMetricDistance(sampleDepth);
     float depthTolerance = mix(1.6, 14.0, smoothstep(10.0, 96.0, centerLinearDepth));
     return 1.0 - smoothstep(depthTolerance, depthTolerance * 2.4, abs(sampleLinearDepth - centerLinearDepth));
 }
@@ -54,8 +56,8 @@ vec3 extractBloomTap(vec2 sampleCoord, float centerDepth, float centerLinearDept
 }
 
 vec3 applyBlur(vec2 coord, vec2 direction) {
-    float centerDepth = texture2D(depthtex0, coord).r;
-    float centerLinearDepth = centerDepth < 0.9999 ? linearizeDepthValue(centerDepth, near, far) : 0.0;
+    float centerDepth = ysSceneDepthMetric(coord);
+    float centerLinearDepth = centerDepth < 1.0 ? ysMetricDistance(centerDepth) : 0.0;
     vec2 texelSize = 1.0 / vec2(viewWidth, viewHeight);
     vec2 sampleStep = direction * texelSize;
     vec3 result = vec3(0.0);

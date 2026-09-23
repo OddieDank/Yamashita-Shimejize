@@ -1,3 +1,4 @@
+uniform mat4 gbufferProjection;
 #define gbuffers_textured_legacy
 
 #include "/shader.h"

@@ -1,3 +1,4 @@
+uniform mat4 gbufferProjection;
 #define gbuffers_terrain_legacy
 
 #include "/shader.h"
@@ -239,7 +240,19 @@ float getPuddleMask(vec3 absWorldPos, vec3 worldGeoNormal, vec2 lightmapUV, vec4
    #endif
 }
 
+#ifdef YS_DH
+#include "/common/dh_clip.glsl"
+#endif
+
 void main() {
+   #ifdef YS_DH
+      ysClipDhBehindVanilla();
+   #endif
+   #ifdef YS_DH
+      vec4 albedo = vec4(1.0);
+      vec2 pixelationOffset = vec2(0.0);
+      vec2 runtimeLightUV = clamp(lightUV, 0.0, 1.0);
+   #else
    vec2 sampleUV = getFoliageWindUV(texUV);
    vec4 albedo = texture2D(texture, sampleUV);
    if (albedo.a < 0.1) {
@@ -248,6 +261,8 @@ void main() {
 
    vec2 pixelationOffset = ComputeTexelOffset(texture, texUV);
    vec2 runtimeLightUV = clamp(TexelSnap(lightUV, pixelationOffset), 0.0, 1.0);
+
+   #endif
 
    vec4 ambient = texture2D(lightmap, vec2(AMBIENT_UV.s, runtimeLightUV.t));
 

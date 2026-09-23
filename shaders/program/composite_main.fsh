@@ -1,3 +1,6 @@
+uniform mat4 gbufferModelView;
+uniform mat4 gbufferProjection;
+#include "/common/render_distance.glsl"
 
 #include "/shader.h"
 #include "/common/math.glsl"
@@ -9,9 +12,6 @@ uniform sampler2D depthtex0;
 uniform sampler2D noisetex;
 uniform sampler2D cloudstex;
 uniform sampler2D colortex2; // hot/glow mask from gbuffers_textured_lit
-#ifdef DISTANT_HORIZONS
-uniform sampler2D dhDepthTex0;
-#endif
 uniform float viewWidth;
 uniform float viewHeight;
 uniform float timeAngle;
@@ -30,12 +30,11 @@ uniform vec3  fogColor;
 uniform vec3  skyColor;
 uniform mat4  gbufferProjectionInverse;
 uniform mat4  gbufferModelViewInverse;
-#ifdef DISTANT_HORIZONS
-uniform mat4  dhProjectionInverse;
-#endif
 #ifdef HAND_DYNAMIC_LIGHTING
 uniform int   heldBlockLightValue;
 #endif
+
+#include "/common/scene_depth.glsl"
 
 varying vec2 texcoord;
 
@@ -75,41 +74,10 @@ vec4 sampleEffectBufferNearest(vec2 uv) {
 #endif
 }
 
-vec3 reconstructViewPos(mat4 projectionInverse, vec2 uv, float depth) {
-  vec4 clip = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
-  vec4 view = projectionInverse * clip;
-  view /= view.w;
-  return (gbufferModelViewInverse * view).xyz;
-}
-
-vec3 getSkyViewRay(vec2 uv) {
-  vec4 clip = vec4(uv * 2.0 - 1.0, 1.0, 1.0);
-  vec4 view = gbufferProjectionInverse * clip;
-  view /= view.w;
-  return (gbufferModelViewInverse * view).xyz;
-}
-
 void resolveSceneViewPos(vec2 uv, out vec3 sceneViewPos, out bool sceneHit) {
-  float vanillaDepth = sampleCompositeTexture(depthtex0, uv).r;
-  sceneHit = vanillaDepth < 0.9999;
-  sceneViewPos = sceneHit ? reconstructViewPos(gbufferProjectionInverse, uv, vanillaDepth)
-                          : getSkyViewRay(uv);
-
-  #ifdef DISTANT_HORIZONS
-    float dhDepth = sampleCompositeTexture(dhDepthTex0, uv).r;
-    bool dhHit = dhDepth < 0.999999;
-
-    if (dhHit) {
-      vec3 dhViewPos = reconstructViewPos(dhProjectionInverse, uv, dhDepth);
-      float dhDist = length(dhViewPos);
-      float vanillaDist = sceneHit ? length(sceneViewPos) : 1e20;
-
-      if (dhDist < vanillaDist) {
-        sceneViewPos = dhViewPos;
-        sceneHit = true;
-      }
-    }
-  #endif
+  YsSceneDepth scene = ysSceneDepth(uv);
+  sceneHit = scene.hit;
+  sceneViewPos = (gbufferModelViewInverse * vec4(scene.viewPos, 1.0)).xyz;
 }
 
 // ---------------------------------------------------------------------------
@@ -392,11 +360,12 @@ void main() {
 
       float transitionFog = clamp(1.0 - OVERWORLD_FOG_MIN, 0.0, 1.0);
       float baseFog = clamp(OVERWORLD_FOG_MAX, 0.0, 1.0);
-      float farPlane = max(far, 1.0);
+      float farPlane = max(ysFogDistance(far), 1.0);
       float fogBase = rescale(viewDist, 0.9 * baseFog * farPlane, farPlane);
       float softBandStart = mix(0.92, 0.48, transitionFog) * farPlane;
       float transitionHaze = rescale(viewDist, softBandStart, farPlane) * (0.06 + 0.42 * transitionFog);
       float distanceHaze = (0.0008 + 0.0014 * transitionFog) * max(0.0, viewDist - 96.0);
+      distanceHaze *= min(1.0, max(far, 1.0) / farPlane);
       float fogApprox = min(1.0, fogBase + transitionHaze + distanceHaze);
       caMask = 1.0 - smoothstep(0.30, 0.70, fogApprox);
     }
@@ -412,11 +381,8 @@ void main() {
   cloudMaskOut = vec4(0.0);
 
   #if ENHANCED_CLOUDS > 0 && !defined(THE_NETHER) && !defined(THE_END) && !defined(NETHER) && !defined(END)
-  float cloudSceneDepth = sampleCompositeTexture(depthtex0, shadowTexcoord).r;
-  bool cloudSceneHasGeometry = cloudSceneDepth < 0.9999;
-  vec3 cloudPlayerPos = cloudSceneHasGeometry
-                      ? reconstructViewPos(gbufferProjectionInverse, shadowTexcoord, cloudSceneDepth)
-                      : getSkyViewRay(shadowTexcoord);
+  bool cloudSceneHasGeometry = sceneHasGeometry;
+  vec3 cloudPlayerPos = sceneViewPos;
 
   // Cloud layer extents (Story Mode two-layer style)
   const float L1_BOT = 192.0;
@@ -489,7 +455,7 @@ void main() {
       float viewDist = length(_playerPos);
       float transitionFog = clamp(1.0 - OVERWORLD_FOG_MIN, 0.0, 1.0);
       float baseFog = clamp(OVERWORLD_FOG_MAX, 0.0, 1.0);
-      float farPlane = max(far, 1.0);
+      float farPlane = max(ysFogDistance(far), 1.0);
 
       // Approximate the same distance fog response as getFogMix OVERWORLD branch
       // so cloud shadows dissolve in the same zone where fog dominates.
@@ -497,6 +463,7 @@ void main() {
       float softBandStart = mix(0.92, 0.48, transitionFog) * farPlane;
       float transitionHaze = rescale(viewDist, softBandStart, farPlane) * (0.06 + 0.42 * transitionFog);
       float distanceHaze = (0.0008 + 0.0014 * transitionFog) * max(0.0, viewDist - 96.0);
+      distanceHaze *= min(1.0, max(far, 1.0) / farPlane);
       float fogApprox = min(1.0, fogBase + transitionHaze + distanceHaze);
       float fogSuppress = smoothstep(0.35, 0.75, fogApprox);
 
