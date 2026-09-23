@@ -9,6 +9,8 @@ output = root / 'dist' / 'Yamashita-Shimejize-mc26.2-DH-alpha.1.zip'
 output.parent.mkdir(exist_ok=True)
 files = sorted(p for p in (root / 'shaders').rglob('*') if p.is_file())
 files.append(root / 'README.md')
+names = [p.relative_to(root).as_posix().lower() for p in files]
+assert len(names) == len(set(names)), 'Case-insensitive file name collision in shaderpack'
 with ZipFile(output, 'w', compression=ZIP_DEFLATED) as archive:
     for file in files:
         entry = ZipInfo(file.relative_to(root).as_posix(), (2026, 9, 23, 0, 0, 0))
