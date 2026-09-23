@@ -23,20 +23,15 @@ vec4 sampleSceneInfo(vec2 uv) {
 	return sampleReflectionTexture(colortex7, uv);
 }
 
-vec3 uv2screenWithProjection(vec2 uv, float depth, mat4 projectionInverse) {
-	return nvec3(projectionInverse * vec4(2.0 * vec3(uv, depth) - 1.0, 1.0));
-}
-
 vec3 sampleReflectionScenePos(vec2 uv, out float sampleDepth, out bool sceneHit) {
-	float vanillaDepth = sampleReflectionTexture(depthtex0, uv).x;
-	sceneHit = vanillaDepth < 0.9999;
-	sampleDepth = vanillaDepth;
-
-	return uv2screen(uv, vanillaDepth);
+    YsSceneDepth scene = ysSceneDepth(uv);
+    sceneHit = scene.hit;
+    sampleDepth = scene.hit ? ysDepthMetric(scene.viewPos) : 1.0;
+    return scene.viewPos;
 }
 
 bool isReflectionDepthAcceptable(float sampleDepth, vec3 samplePos, float currentDepth, vec3 currentPos) {
-	return sampleDepth + 0.001 >= currentDepth;
+    return sampleDepth < 1.0 && -samplePos.z + 0.05 >= -currentPos.z;
 }
 
 bool isSceneInfoWater(vec4 info) {

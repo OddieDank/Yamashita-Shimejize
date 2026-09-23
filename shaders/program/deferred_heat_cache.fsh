@@ -4,9 +4,11 @@
 
 uniform sampler2D colortex2;
 uniform sampler2D depthtex0;
+uniform mat4 gbufferProjectionInverse;
 uniform float viewWidth, viewHeight;
 uniform float near, far;
 
+#include "/common/scene_depth.glsl"
 varying vec2 texcoord;
 
 /* RENDERTARGETS: 4 */
@@ -37,16 +39,16 @@ float getHeatDistanceFade(float linearDepth) {
 HeatSample sampleHeat(vec2 uv) {
     HeatSample sample;
     vec4 heatMask = texture2D(colortex2, uv);
-    sample.depth = texture2D(depthtex0, uv).r;
-    sample.linearDepth = (sample.depth < 0.9999) ? linearizeDepthValue(sample.depth, near, far) : 0.0;
-    float fade = (sample.depth < 0.9999) ? getHeatDistanceFade(sample.linearDepth) : 0.0;
+    sample.depth = ysSceneDepthMetric(uv);
+    sample.linearDepth = (sample.depth < 1.0) ? ysMetricDistance(sample.depth) : 0.0;
+    float fade = (sample.depth < 1.0) ? getHeatDistanceFade(sample.linearDepth) : 0.0;
     sample.mask = heatMask.rg * fade;
     return sample;
 }
 
 float getHeatOcclusionWeight(float centerDepth, float centerLinearDepth, HeatSample sample) {
-    if (centerDepth >= 0.9999) return 1.0;
-    if (sample.depth >= 0.9999) return 0.0;
+    if (centerDepth >= 1.0) return 1.0;
+    if (sample.depth >= 1.0) return 0.0;
     float depthTolerance = mix(1.2, 8.0, smoothstep(6.0, 72.0, centerLinearDepth));
     float behindDelta = sample.linearDepth - centerLinearDepth;
     return 1.0 - smoothstep(depthTolerance, depthTolerance * 2.6, behindDelta);
@@ -59,7 +61,7 @@ float getHeatField(vec2 coord, HeatSample centerSample) {
     float c = centerSample.mask.r;
     if (c > 0.9) return c;
 
-    float lin0 = (centerDepth < 0.9999) ? centerLinearDepth : 128.0;
+    float lin0 = (centerDepth < 1.0) ? centerLinearDepth : 128.0;
     float distScale = clamp(28.0 / max(lin0, 1.0), 0.45, 2.1);
 
     float r1 = 8.0 * distScale;

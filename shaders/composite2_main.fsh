@@ -34,6 +34,7 @@ uniform float isWarm;
 uniform float timeBrightness; // 1.0 at noon, 0.0 at midnight
 uniform float timeAngle;
 
+#include "/common/scene_depth.glsl"
 #include "/common/transformations.fsh"
 
 vec4 sampleComposite2Texture(sampler2D tex, vec2 uv) {
@@ -88,7 +89,7 @@ float getBloomEmissiveFactor(vec3 col) {
 
 vec3 extractBloomSource(vec3 col, vec2 coord) {
     #ifdef THE_END
-    if (sampleComposite2Texture(depthtex0, coord).x >= 0.9999) return vec3(0.0);
+    if (ysSceneDepthMetric(coord) >= 1.0) return vec3(0.0);
     #endif
 
     float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
@@ -123,13 +124,13 @@ vec3 addRainbow(vec3 col, vec2 coord) {
     float preRainbowStrength = smoothstep(0.08, 0.28, rainMemory) * (1.0 - rainNow);
     if (preRainbowStrength <= 0.0 || preDayFade <= 0.0 || preWarmFactor <= 0.0) return col;
 
-    float depth = sampleComposite2Texture(depthtex0, coord).x;
+    float depth = ysSceneDepthMetric(coord);
     vec2  cloudData     = sampleComposite2Texture(colortex3, coord).rg;
     bool  isCloud       = cloudData.r > 0.5;
     float storedAlpha   = cloudData.g;
 
     // Skip non-cloud solid geometry; clouds get rainbow scaled by their transparency
-    if (depth < 0.9999 && !isCloud) return col;
+    if (depth < 1.0 && !isCloud) return col;
     float rainbowScale = isCloud ? (1.0 - storedAlpha) : 1.0;
 
     // Reconstruct view direction in world/player space (Y = world up)
@@ -274,7 +275,6 @@ vec2 getHeatAxial(int index) {
 }
 
 vec3 calcRays(vec3 color) {
-    float land = 1.0 - near / far / far;
     float raysIntensity = 0.2;
     vec2 viewRes = vec2(viewWidth, viewHeight);
     vec2 invViewRes = 1.0 / viewRes;
@@ -290,10 +290,10 @@ vec3 calcRays(vec3 color) {
     for (int i = 0; i < 20; i++) {
         vec2 samplePixel = floor((noisetc * viewRes) / pixelBlockSize) * pixelBlockSize;
         vec2 sampleCoord = clamp(samplePixel * invViewRes, 0.0, 1.0);
-        float depth0     = sampleComposite2Texture(depthtex0, sampleCoord).x;
+        float depth0     = ysSceneDepthMetric(sampleCoord);
         float cloudOcc   = sampleComposite2Texture(colortex3, sampleCoord).r;
         noisetc += deltatexcoord;
-        gr += step(land, depth0) * (1.0 - cloudOcc) * cdist(noisetc);
+        gr += step(1.0, depth0) * (1.0 - cloudOcc) * cdist(noisetc);
     }
     gr /= 20.0;
 
@@ -322,16 +322,16 @@ float getHeatDistanceFade(float linearDepth) {
 HeatSample sampleHeat(vec2 uv) {
     HeatSample sample;
     vec4 heatMask = sampleComposite2Texture(colortex2, uv);
-    sample.depth = sampleComposite2Texture(depthtex0, uv).r;
-    sample.linearDepth = (sample.depth < 0.9999) ? linearizeDepthValue(sample.depth, near, far) : 0.0;
-    float fade = (sample.depth < 0.9999) ? getHeatDistanceFade(sample.linearDepth) : 0.0;
+    sample.depth = ysSceneDepthMetric(uv);
+    sample.linearDepth = (sample.depth < 1.0) ? ysMetricDistance(sample.depth) : 0.0;
+    float fade = (sample.depth < 1.0) ? getHeatDistanceFade(sample.linearDepth) : 0.0;
     sample.mask = heatMask.rg * fade;
     return sample;
 }
 
 float getHeatOcclusionWeight(float centerDepth, float centerLinearDepth, float sampleDepth, float sampleLinearDepth) {
-    if (centerDepth >= 0.9999) return 1.0;
-    if (sampleDepth >= 0.9999) return 0.0;
+    if (centerDepth >= 1.0) return 1.0;
+    if (sampleDepth >= 1.0) return 0.0;
     float depthTolerance = mix(1.2, 8.0, smoothstep(6.0, 72.0, centerLinearDepth));
     float behindDelta = sampleLinearDepth - centerLinearDepth;
     return 1.0 - smoothstep(depthTolerance, depthTolerance * 2.6, behindDelta);
@@ -351,8 +351,8 @@ vec3 sampleScenePixel(vec2 uv, vec3 centerColor, float centerDepth, float center
     vec2 res = vec2(viewWidth, viewHeight);
     vec2 p = floor(clamp(uv, vec2(0.0), vec2(1.0)) * res);
     vec2 suv = (p + 0.5) / res;
-    float sampleDepth = sampleComposite2Texture(depthtex0, suv).r;
-    float sampleLinearDepth = (sampleDepth < 0.9999) ? linearizeDepthValue(sampleDepth, near, far) : 0.0;
+    float sampleDepth = ysSceneDepthMetric(suv);
+    float sampleLinearDepth = (sampleDepth < 1.0) ? ysMetricDistance(sampleDepth) : 0.0;
     float occ = getHeatOcclusionWeight(centerDepth, centerLinearDepth, sampleDepth, sampleLinearDepth);
     vec3 sampleColor = sampleComposite2Texture(texture, suv).rgb;
     return mix(centerColor, sampleColor, occ);
@@ -371,7 +371,7 @@ vec3 addHeatGlow(vec3 col, vec2 coord) {
     if (glowMask < 0.01) return col;
 
     // Strong distance clamp: local glow should not smear into distant copies.
-    float lin = (centerDepth < 0.9999) ? centerLinearDepth : 128.0;
+    float lin = (centerDepth < 1.0) ? centerLinearDepth : 128.0;
     float nearFadeRaw = 1.0 - smoothstep(10.0, 42.0, lin);
     // Pixel/dither distance fade (no smooth noisy tail).
     float dDist = bayer4(gl_FragCoord.xy / 2.0);
@@ -449,7 +449,7 @@ vec3 addHeatHaze(vec3 col, vec2 coord) {
     if (maskRaw < 0.01) return col;
 
     // Distance attenuation (close wider/stronger, far weaker).
-    float lin = (centerDepth < 0.9999) ? centerLinearDepth : 128.0;
+    float lin = (centerDepth < 1.0) ? centerLinearDepth : 128.0;
     float nearBoost = clamp(1.0 - smoothstep(14.0, 72.0, lin), 0.0, 1.0);
     maskRaw *= mix(0.35, 1.20, nearBoost);
     maskRaw = clamp(maskRaw, 0.0, 1.0);
@@ -535,11 +535,11 @@ vec3 addShootingStars(vec3 col, vec2 coord) {
     float nightStrength = clamp(1.0 - timeBrightness * 5.0, 0.0, 1.0);
     if (nightStrength < 0.01) return col;
 
-    float depth = sampleComposite2Texture(depthtex0, coord).x;
+    float depth = ysSceneDepthMetric(coord);
     vec2 cloudData = sampleComposite2Texture(colortex3, coord).rg;
     bool isCloud = cloudData.r > 0.5;
     float storedAlpha = cloudData.g;
-    if (depth < 0.9999 && !isCloud) return col;         // solid geometry in front
+    if (depth < 1.0 && !isCloud) return col;         // solid geometry in front
     float cloudScale = isCloud ? (1.0 - storedAlpha) : 1.0;
     if (cloudScale <= 0.001) return col;
 
@@ -759,8 +759,8 @@ vec3 addLensFlare(vec3 col, vec2 coord) {
         vec2 off = getLensOcclusionOffset(i) * cScale;
         vec2 uvP = clamp(sunUV + off, 0.0, 1.0);
         vec2 uvN = clamp(sunUV - off, 0.0, 1.0);
-        if (sampleComposite2Texture(depthtex0, uvP).r < 0.9999 || sampleComposite2Texture(colortex3, uvP).r > 0.5) flareFactor -= 0.125;
-        if (sampleComposite2Texture(depthtex0, uvN).r < 0.9999 || sampleComposite2Texture(colortex3, uvN).r > 0.5) flareFactor -= 0.125;
+        if (ysSceneDepthMetric(uvP) < 1.0 || sampleComposite2Texture(colortex3, uvP).r > 0.5) flareFactor -= 0.125;
+        if (ysSceneDepthMetric(uvN) < 1.0 || sampleComposite2Texture(colortex3, uvN).r > 0.5) flareFactor -= 0.125;
     }
     if (flareFactor < 0.01) return col;
 

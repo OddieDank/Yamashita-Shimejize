@@ -1,3 +1,4 @@
+#include "/common/render_distance.glsl"
 float getFogMix(vec3 worldPos) {
 #if MC_VERSION >= 11300 && defined ENABLE_FOG
    float len = fogShape == 1 ? max(length(worldPos.xz), abs(worldPos.y)) : length(worldPos);
@@ -13,7 +14,7 @@ float getFogMix(vec3 worldPos) {
       float hLen = length(worldPos.xz);
       float posHeight = clamp(worldPos.y / max(length(worldPos), 0.001), 0.0, 1.0);
       float horizonMask = 1.0 - smoothstep(0.05, 0.28, posHeight);
-      float cloudFogRange = clamp(max(far, 1.0) * 3.5, 640.0, 1920.0);
+      float cloudFogRange = clamp(max(ysFogDistance(far), 1.0) * 3.5, 640.0, 1920.0);
       float effectiveRange = cloudFogRange * mix(1.0, 0.84, horizonMask);
       float normalizedDist = clamp(hLen / max(effectiveRange, 1.0), 0.0, 2.0);
       float opticalDepth = pow(normalizedDist, mix(1.90, 1.20, horizonMask))
@@ -39,7 +40,7 @@ float getFogMix(vec3 worldPos) {
       // Mild rain influence only, to avoid rain "white veil".
       baseFog = min(baseFog, 1.0 - rainStrength * 0.35);
 
-      float farPlane = max(far, 1.0);
+      float farPlane = max(ysFogDistance(far), 1.0);
 
       // Main fog wall (controls chunk-edge masking strength).
       float fogBase = rescale(len, 0.9 * baseFog * farPlane, farPlane);
@@ -51,6 +52,7 @@ float getFogMix(vec3 worldPos) {
       // Extra very soft long-distance veil to remove hard render boundary.
       float distanceHaze = (0.0008 + 0.0014 * transitionFog) * max(0.0, len - 96.0);
       distanceHaze *= mix(1.0, 0.90, rainStrength);
+      distanceHaze *= min(1.0, max(far, 1.0) / max(ysFogDistance(far), 1.0));
 
       // Extra fade right at render edge to fully hide chunk silhouettes.
       float edgeMask = smoothstep(0.90 * farPlane, farPlane, len);
@@ -68,7 +70,7 @@ float getFogMix(vec3 worldPos) {
          return rescale(len, fogStart, fogEnd);
       }
 
-      float farPlane = max(far, 1.0);
+      float farPlane = max(ysFogDistance(far), 1.0);
       float vanillaFog = rescale(len, fogStart, fogEnd);
 
       // The End needs a persistent distance veil even when the runtime reports

@@ -1,0 +1,3 @@
+
+option.DH_SHADOWS=Distant Horizons shadows
+option.DH_SHADOWS.comment=Allow LOD terrain to cast shadows inside the configured shadow distance. Increases rendering cost.

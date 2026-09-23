@@ -60,8 +60,19 @@ varying float diffuse;
 #define fragColor1 gl_FragData[1]
 #define fragColor2 gl_FragData[2]
 
+#ifdef YS_DH
+#include "/common/dh_clip.glsl"
+#endif
+
 void main() {
-	vec4 albedo = texture2D(texture, texUV);
+   #ifdef YS_DH
+      ysClipDhBehindVanilla();
+   #endif
+	#ifdef YS_DH
+      vec4 albedo = vec4(1.0, 1.0, 1.0, clamp(color.a, 0.05, 1.0));
+   #else
+      vec4 albedo = texture2D(texture, texUV);
+   #endif
 	vec2 runtimeLightUV = clamp(lightUV, 0.0, 1.0);
 	vec4 ambient = texture2D(lightmap, vec2(AMBIENT_UV.s, runtimeLightUV.t));
 

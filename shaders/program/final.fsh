@@ -1,3 +1,4 @@
+#include "/common/render_distance.glsl"
 #define final
 
 #include "/shader.h"
@@ -26,6 +27,7 @@ varying vec2 texUV;
 #include "/common/depth_utils.glsl"
 #include "/common/effect_metadata.glsl"
 #include "/common/transformations.fsh"
+#include "/common/scene_depth.glsl"
 #include "/common/getReflectionColor.fsh"
 
 #define fragColor gl_FragData[0]
@@ -108,7 +110,7 @@ float getPuddleFogFade(vec3 fragPos) {
 		float len = length(fragPos);
 		float baseFog = clamp(OVERWORLD_FOG_MAX, 0.0, 1.0);
 		float transitionFog = clamp(1.0 - OVERWORLD_FOG_MIN, 0.0, 1.0);
-		float farPlane = max(far, 1.0);
+		float farPlane = max(ysFogDistance(far), 1.0);
 
 		baseFog = min(baseFog, 1.0 - rainStrength * 0.35);
 
@@ -117,6 +119,7 @@ float getPuddleFogFade(vec3 fragPos) {
 		float transitionHaze = rescale(len, softBandStart, farPlane) * (0.06 + 0.42 * transitionFog);
 		float distanceHaze = (0.0008 + 0.0014 * transitionFog) * max(0.0, len - 96.0);
 		distanceHaze *= mix(1.0, 0.90, rainStrength);
+		distanceHaze *= min(1.0, max(far, 1.0) / max(ysFogDistance(far), 1.0));
 		float edgeMask = smoothstep(0.90 * farPlane, farPlane, len);
 		float edgeBoost = edgeMask * (0.22 + 0.22 * transitionFog);
 		float rainFarMask = smoothstep(0.55 * farPlane, farPlane, len);
@@ -147,7 +150,7 @@ float getCloudAlphaMask(vec2 uv) {
 }
 
 float getSkyPixelMask(vec2 uv) {
-	float skyDepth = step(0.9999, sampleFinalTexture(depthtex0, uv).x);
+	float skyDepth = step(1.0, ysSceneDepthMetric(uv));
 	return max(skyDepth, getCloudPresenceMask(uv));
 }
 
@@ -211,16 +214,12 @@ vec2 snapDofUV(vec2 uv, float pixelSize) {
 }
 
 float getDofFocusDepth() {
-	if (centerDepthSmooth > 0.0 && centerDepthSmooth < 0.9999) {
-		return centerDepthSmooth;
-	}
-
-	float centerDepth = sampleFinalTexture(depthtex0, vec2(0.5)).x;
-	if (centerDepth > 0.0 && centerDepth < 0.9999) {
-		return centerDepth;
-	}
-
-	return 0.9995;
+    YsSceneDepth focus = ysSceneDepth(vec2(0.5));
+    if (focus.hit && !focus.distant && centerDepthSmooth > 0.0 && centerDepthSmooth < 1.0) {
+        return ysDepthMetric(ysUnproject(gbufferProjectionInverse, vec2(0.5), centerDepthSmooth));
+    }
+    if (focus.hit) return ysDepthMetric(focus.viewPos);
+    return 0.9995;
 }
 
 const int DOF_TAP_COUNT = 12;
@@ -253,13 +252,13 @@ vec4 sampleDofTap(vec2 uv, float pixelSize, float centerLinearDepth, float blurS
 	if (max(getHandMask(snappedUV), sampleForegroundHandMask) > 0.5) return vec4(0.0);
 
 	vec3 tapColor = sampleFinalTexture(colortex0, snappedUV).rgb;
-	float tapDepth = sampleFinalTexture(depthtex0, snappedUV).x;
-	if (tapDepth >= 0.9999) {
+	float tapDepth = ysSceneDepthMetric(snappedUV);
+	if (tapDepth >= 1.0) {
 		float skyWeight = smoothstep(0.24, 0.86, blurStrength) * 0.40;
 		return vec4(tapColor, skyWeight);
 	}
 
-	float tapLinearDepth = linearizeDepthValue(tapDepth, near, far);
+	float tapLinearDepth = ysMetricDistance(tapDepth);
 	float depthTolerance = mix(3.2, 20.0, blurStrength);
 	depthTolerance *= mix(1.0, 1.85, smoothstep(10.0, 96.0, centerLinearDepth));
 	float depthWeight = 1.0 - smoothstep(depthTolerance, depthTolerance * 2.5, abs(tapLinearDepth - centerLinearDepth));
@@ -282,7 +281,7 @@ vec4 sampleSkyDofTap(vec2 uv, float pixelSize, vec3 centerColor) {
 }
 
 vec4 getPuddleReflectionColor(vec2 uv, float depth, vec3 normal, vec3 fragPos) {
-	float baseLinearDepth = linearizeDepthValue(depth, near, far);
+	float baseLinearDepth = ysMetricDistance(depth);
 	float biasFade = smoothstep(8.0, 80.0, baseLinearDepth);
 	float originBias = mix(0.0015, 0.008, biasFade);
 	float planeRejectThreshold = mix(0.008, 0.030, biasFade);
@@ -348,7 +347,7 @@ vec3 applySkyFeatureDof(vec3 currentColor, vec2 uv, float focusDepth) {
 
 	float dofAmount = getDofAmount();
 	float macro = getDofMacroFactor();
-	float baseStrength = getSingleFocusDofStrength(0.99995, focusDepth);
+	float baseStrength = getSingleFocusDofStrength(1.0, focusDepth);
 	float layerStrength = mix(0.82, 1.0, featureMask);
 	float strength = baseStrength * layerStrength;
 	strength *= mix(0.55, 1.22, dofAmount);
@@ -436,8 +435,8 @@ vec3 applySkySilhouetteDof(vec3 currentColor, vec2 uv, float focusDepth) {
 		float sampleForegroundHandMask = decodeEffectHandMask(samplePackedEffectMask);
 		if (max(getHandMask(snappedUV), sampleForegroundHandMask) > 0.5) continue;
 
-		float sampleDepth = sampleFinalTexture(depthtex0, snappedUV).x;
-		if (sampleDepth >= 0.9999) continue;
+		float sampleDepth = ysSceneDepthMetric(snappedUV);
+		if (sampleDepth >= 1.0) continue;
 
 		float sampleStrength = getSingleFocusDofStrength(sampleDepth, focusDepth);
 		if (sampleStrength < 0.015) continue;
@@ -460,7 +459,7 @@ vec3 applySkySilhouetteDof(vec3 currentColor, vec2 uv, float focusDepth) {
 }
 
 vec3 applyWorldDof(vec3 currentColor, vec2 uv, float depth, float focusDepth, float waterSurfaceMask, float waterReflectionMask) {
-	float linearDepth = linearizeDepthValue(depth, near, far);
+	float linearDepth = ysMetricDistance(depth);
 	float strength = getSingleFocusDofStrength(depth, focusDepth);
 	float dofAmount = getDofAmount();
 	if (waterSurfaceMask > 0.5) {
@@ -524,7 +523,7 @@ vec3 applyPixelDof(vec3 currentColor, vec2 uv, float depth, float effectBlockMas
 		float focusDepth = getDofFocusDepth();
 	float skyMask = getSkyPixelMask(uv);
 
-		if (depth >= 0.9999 || skyMask > 0.001) {
+		if (depth >= 1.0 || skyMask > 0.001) {
 			vec3 skyColor = applySkyFeatureDof(currentColor, uv, focusDepth);
 			return applySkySilhouetteDof(skyColor, uv, focusDepth);
 		}
@@ -537,7 +536,7 @@ void main() {
 	vec4 color = sampleFinalTexture(colortex0, texUV);
 	vec4 info  = sampleFinalTexture(colortex7, texUV);
 
-	float depth = sampleFinalTexture(depthtex0, texUV).x;
+	float depth = ysSceneDepthMetric(texUV);
 	vec4 effectData = sampleFinalEffectDataNearest(texUV);
 	float packedEffectMask = effectData.a;
 	float handMask = getHandMask(texUV);
@@ -569,7 +568,7 @@ void main() {
 		float dither = bayer2(texUV / 4);
 
 		vec3 normal          = world2screen(prenormal);
-		vec3 fragPos         = uv2screen(texUV, depth);
+		vec3 fragPos         = ysSceneDepth(texUV).viewPos;
 		vec4 reflectionColor = getReflectionColor(depth, normal, fragPos, dither);
 		float fresnel        = 1.0 - dot(normal, -normalize(fragPos));
 		float reflFade = 1.0;
@@ -591,9 +590,9 @@ void main() {
 	}
 
 	#if ENABLE_PUDDLES > 0
-		if (puddleMask > 0.12 && effectBlockMask < 0.5 && depth < 0.9999 && info.x <= 0.99) {
+		if (puddleMask > 0.12 && effectBlockMask < 0.5 && depth < 1.0 && info.x <= 0.99) {
 			vec3 puddleNormal = normalize(world2screen(vec3(0.0, 1.0, 0.0)));
-			vec3 fragPos = uv2screen(texUV, depth);
+			vec3 fragPos = ysSceneDepth(texUV).viewPos;
 			float puddleFogFade = getPuddleFogFade(fragPos);
 			vec4 puddleReflection = getPuddleReflectionColor(texUV, depth, puddleNormal, fragPos);
 			float fresnel = 1.0 - clamp(dot(puddleNormal, -normalize(fragPos)), 0.0, 1.0);

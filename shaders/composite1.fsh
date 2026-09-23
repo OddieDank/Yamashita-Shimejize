@@ -12,6 +12,8 @@ uniform mat4 gbufferModelView, gbufferPreviousModelView, gbufferModelViewInverse
 
 uniform sampler2D colortex0;
 uniform sampler2D depthtex1;
+uniform sampler2D depthtex0;
+#include "/common/scene_depth.glsl"
 
 varying vec2 texcoord;
 
@@ -26,7 +28,7 @@ vec3 motionBlur(vec3 color, float z, float dither) {
 		
 		vec4 currentPosition = vec4(texcoord, z, 1.0) * 2.0 - 1.0;
 		
-		vec4 viewPos = gbufferProjectionInverse * currentPosition;
+		vec4 viewPos = vec4(ysSceneDepth(texcoord).viewPos, 1.0);
 		viewPos = gbufferModelViewInverse * viewPos;
 		viewPos /= viewPos.w;
 		
