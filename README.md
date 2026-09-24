@@ -1,5 +1,8 @@
 # Yamashita Shimejize — Minecraft 26.2 + Distant Horizons
 
+## Shader ready to use
+[Yamashita-Shimejize-DH](Yamashita-Shimejize-mc26.2-DH-alpha.4.zip)
+
 Experimental adaptation of [rindefault/Yamashita-Shimejize](https://github.com/rindefault/Yamashita-Shimejize), based on commit `e5f709fd149bf26f5c5d60ae8481b001fcac279a`.
 
 I wanted to play minecraft with stylized shaders and distant horizons, i thought this shader was very beautiful but it wasn't compatible, so here's an attempt to adapt it. I found it to be playable at this point.
