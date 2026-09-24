@@ -2,7 +2,11 @@
 
 Experimental adaptation of [rindefault/Yamashita-Shimejize](https://github.com/rindefault/Yamashita-Shimejize), based on commit `e5f709fd149bf26f5c5d60ae8481b001fcac279a`.
 
-**Status: alpha.4. The user confirmed that alpha.3 fixed dark LODs and nearby silhouettes. Alpha.4 targets remaining reflection artifacts and cloud movement with view bobbing. GLSL and synthetic rendering checks have passed; visual confirmation of alpha.4 is still pending.** This is not an official release from the original author.
+I wanted to play minecraft with stylized shaders and distant horizons, i thought this shader was very beautiful but it wasn't compatible, so here's an attempt to adapt it. I found it to be playable at this point.
+
+Also i play with a latitude 5420, so its potato friendly 
+
+**Status: alpha.4. alpha.3 fixed dark LODs and nearby silhouettes. Alpha.4 targets remaining reflection artifacts and cloud movement with view bobbing.** This is not an official release from the original author.
 
 ## Target environment
 
@@ -74,19 +78,11 @@ It also renders 18 cases through the real DH terrain/water vertex programs and s
 Reflection tests add 18 cases for wave offsets, foreground/background boundaries, water, sky, ray mismatch and the reflecting plane, plus eight cases through the complete water/puddle ray marchers. They retain valid reflections with normal and DH depths. There are 87 rendered scenarios in total. Cloud renderer selection was checked against the installed Iris 1.11.4 property parser; view-bobbing behavior still requires an in-game check.
 
 ## Pending in-game checks
-
-- With alpha.4 selected, revisit the tree and lamp beside water, move and turn the camera, and check reflection edges. Test rain puddles as well.
-- Disable Enhanced Clouds and walk/sprint with view bobbing enabled. Confirm that Minecraft's normal clouds remain aligned with the world; also test Enhanced Clouds enabled.
-- Keep DH enabled and check silhouettes and leaf gaps, then move toward distant terrain to inspect the transition and compare nearby/distant brightness.
-- Load and reload the pack without errors, first with DH disabled and then enabled.
-- Fly across the transition between normal chunks and LODs; check lighting, gaps, and fog during the day, at night, and in rain.
-- Inspect oceans, coastlines, water from below the surface, and mountains in front of/behind clouds.
-- Test reflections, DOF, camera movement, and optional DH shadows.
 - Visit the Nether and End and switch dimensions; measure performance on the target GPU.
 
 LODs use simplified colors and materials; DH's optional texture atlas is not integrated. Focusing on LODs does not have the temporal smoothing that Iris provides for normal terrain. Lighting/water continuity and the performance cost of effects still need to be evaluated in the game.
 
-To diagnose failures, provide the Iris error or `logs/latest.log`, the pack settings, and a screenshot of the issue. Do not include tokens or account information.
+To diagnose failures, provide the Iris error or `logs/latest.log`, the pack settings, and a screenshot of the issue.
 
 ## References and credits
 
