@@ -120,7 +120,7 @@ fragment = '''#version 330 compatibility
 uniform float viewWidth, viewHeight;
 uniform mat4 gbufferProjectionInverse;
 varying vec3 worldPos;
-''' + (ROOT / 'common/dh_clip.glsl').read_text() + '''
+''' + (ROOT / 'common/math.glsl').read_text() + (ROOT / 'common/dh_clip.glsl').read_text() + '''
 out vec4 result;
 void main() {
     ysClipDhBehindVanilla();
@@ -146,17 +146,19 @@ def forward(near, far):
 overlap_cases = [
     ('sky beside nearby leaves', None, 24, 32, 0, False),
     ('same leaves after camera rotation', None, 24, 32, 55, False),
-    ('outside exclusion radius', None, 40, 32, 0, True),
-    ('outside radius after rotation', None, 40, 32, 55, True),
+    ('near roof outside API exclusion radius', None, 40, 16, 0, False),
+    ('same roof after rotation', None, 40, 16, 55, False),
     ('LOD in front of normal geometry', 100, 80, 16, 0, True),
     ('LOD behind normal geometry', 80, 100, 16, 0, False),
     ('distant terrain against sky', None, 2048, 16, 0, True),
-    ('zero exclusion', None, 24, 0, 0, True),
+    ('near leaves with zero API exclusion', None, 24, 0, 0, False),
+    ('past transition after rotation', None, 100, 16, 55, True),
 ]
 for name in ['dh_terrain.vsh', 'dh_water.vsh']:
     program = make_program(prepare(ROOT / name, True, {}), fragment)
     bind(gl, 'glUseProgram', None, uint)(program)
     set_int(uniform(program, b'depthtex0'), 0)
+    set_float(uniform(program, b'far'), 128)
     for key in [b'viewWidth', b'viewHeight']:
         set_float(uniform(program, key), 1)
     vanilla_depth = projection(b'gbufferProjectionInverse', .05, 128)
@@ -187,3 +189,104 @@ for name in ['dh_terrain.vsh', 'dh_water.vsh']:
         if visible:
             assert math.isclose(pixel[0], distance, rel_tol=.001), (name, label, tuple(pixel))
 print(f'PASS: {2 * len(overlap_cases)} rendered DH clipping/projection cases (terrain and water).')
+
+# A whole dither tile must be empty near the camera, partially covered in the
+# transition, and fully covered before the normal terrain ends. Test at two
+# normal render distances without depending on a single pixel's Bayer threshold.
+fragment = fragment.replace('varying vec3 worldPos;', 'uniform vec3 worldPos;')
+program = make_program(vertex, fragment)
+bind(gl, 'glUseProgram', None, uint)(program)
+set_vec3 = bind(gl, 'glUniform3f', None, integer, C.c_float, C.c_float, C.c_float)
+active_tex(0x84C2)
+bind_tex(0x0DE1, textures[2])
+tex_image(0x0DE1, 0, 0x8814, 4, 4, 0, 0x1908, 0x1406, None)
+bind(gl, 'glViewport', None, integer, integer, integer, integer)(0, 0, 4, 4)
+for key in [b'viewWidth', b'viewHeight']:
+    set_float(uniform(program, key), 4)
+set_int(uniform(program, b'depthtex0'), 0)
+set_float(uniform(program, b'clipDistance'), 16)
+projection(b'dhProjectionInverse', 16, 8192)
+for normal_range in [64, 128]:
+    set_float(uniform(program, b'far'), normal_range)
+    counts = []
+    for fraction in [.3, .4, .45, .5, .55, .6, 2.0]:
+        distance = normal_range * fraction
+        # Front-facing and side-facing points at the same chunk distance.
+        for x, z in [(0, -distance), (distance, 0)]:
+            set_vec3(uniform(program, b'worldPos'), x, 0, z)
+            clear(0x4000)
+            draw(0x0004, 0, 3)
+            pixels = (C.c_float * 64)()
+            read(0, 0, 4, 4, 0x1908, 0x1406, pixels)
+            count = sum(pixels[i] > 0 for i in range(1, 64, 4))
+            if x == 0:
+                counts.append(count)
+            else:
+                assert count == counts[-1], ('camera direction changed coverage', counts, count)
+    assert counts[:2] == [0, 0] and counts[-2:] == [16, 16], counts
+    assert counts == sorted(counts) and 0 < counts[3] < 16, counts
+print('PASS: 28 rendered transition tiles: no nearby LOD pixels, smooth coverage, intact far terrain.')
+
+# Render the complete DH lighting path with a BLACK Minecraft lightmap. This
+# models a missing/stale external binding, which standalone compilation cannot
+# catch. Skylight, night, cave darkness and block lights must still work.
+active_tex(0x84C2)
+bind_tex(0x0DE1, textures[2])
+tex_image(0x0DE1, 0, 0x8814, 1, 1, 0, 0x1908, 0x1406, None)
+bind(gl, 'glViewport', None, integer, integer, integer, integer)(0, 0, 1, 1)
+black_texture = uint()
+gen_tex(1, C.byref(black_texture))
+bind_tex(0x0DE1, black_texture)
+tex_param(0x0DE1, 0x2801, 0x2600)
+tex_param(0x0DE1, 0x2800, 0x2600)
+tex_image(0x0DE1, 0, 0x8814, 1, 1, 0, 0x1908, 0x1406, (C.c_float * 4)(0,0,0,1))
+identity = (C.c_float * 16)(1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1)
+matrix_mode(0x1700)
+load_matrix(identity)
+lightcoord = bind(gl, 'glMultiTexCoord2f', None, uint, C.c_float, C.c_float)
+bind(gl, 'glColor4f', None, C.c_float, C.c_float, C.c_float, C.c_float)(.6,.6,.6,1)
+bind(gl, 'glNormal3f', None, C.c_float, C.c_float, C.c_float)(1,0,0)
+for name in ['dh_terrain', 'dh_water']:
+    # Isolate surface lighting: sky-colored fog would hide a black-lightmap bug.
+    sources = [prepare(ROOT / (name + suffix), True, {}).replace(
+        '#define ENABLE_FOG', '// Fog disabled for the lighting regression')
+        for suffix in ['.vsh', '.fsh']]
+    material = 'DH_BLOCK_WATER' if name == 'dh_water' else 'DH_BLOCK_GRASS'
+    sources[0] = sources[0].replace('int dhMaterialId;', f'int dhMaterialId = {material};')
+    program = make_program(*sources)
+    bind(gl, 'glUseProgram', None, uint)(program)
+    for key in [b'gbufferModelView', b'gbufferModelViewInverse']:
+        set_matrix(uniform(program, key), 1, 0, identity)
+    set_matrix(uniform(program, b'dhProjection'), 1, 0, forward(16, 8192))
+    set_matrix(uniform(program, b'gbufferProjection'), 1, 0, forward(.05, 128))
+    projection(b'dhProjectionInverse', 16, 8192)
+    projection(b'gbufferProjectionInverse', .05, 128)
+    set_int(uniform(program, b'depthtex0'), 0)
+    set_int(uniform(program, b'lightmap'), 2)
+    set_int(uniform(program, b'dhRenderDistance'), 2016)
+    for key, value in [(b'viewWidth', 1), (b'viewHeight', 1), (b'far', 128),
+                       (b'clipDistance', 16), (b'screenBrightness', .5)]:
+        set_float(uniform(program, key), value)
+    set_vec3(uniform(program, b'skyColor'), .5,.7,1)
+    set_vec3(uniform(program, b'fogColor'), .6,.7,.8)
+    set_vec3(uniform(program, b'shadowLightPosition'), 0,1000,0)
+    luminances = []
+    for time, block, sky in [(6000,0,15), (18000,0,15), (6000,0,0), (6000,15,0)]:
+        set_int(uniform(program, b'worldTime'), time)
+        set_float(uniform(program, b'timeAngle'), time / 24000)
+        lightcoord(0x84C2, (block+.5)/16, (sky+.5)/16)
+        clear(0x4000)
+        begin(0x0004)
+        for x, y in [(-256,-256), (768,-256), (-256,768)]:
+            vertex3(x, y, -256)
+        end()
+        pixel = (C.c_float * 4)()
+        read(0, 0, 1, 1, 0x1908, 0x1406, pixel)
+        assert all(math.isfinite(x) for x in pixel), (name, time, block, sky, tuple(pixel))
+        luminances.append(sum(a*b for a,b in zip(pixel, [.299,.587,.114])))
+    day, night, cave, torch = luminances
+    assert day > .08, (name, 'unlit daylight LOD', luminances)
+    assert night < day * .6 and cave < day * .6, (name, luminances)
+    assert torch > cave + .05, (name, 'missing block light', luminances)
+    print(f'PASS: {name} lighting with black lightmap: day/night/cave/torch = '
+          + '/'.join(f'{v:.3f}' for v in luminances))

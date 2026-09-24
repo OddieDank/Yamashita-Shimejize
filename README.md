@@ -2,7 +2,7 @@
 
 Experimental adaptation of [rindefault/Yamashita-Shimejize](https://github.com/rindefault/Yamashita-Shimejize), based on commit `e5f709fd149bf26f5c5d60ae8481b001fcac279a`.
 
-**Status: alpha.2. GLSL compilation and depth tests have passed. The user confirmed that alpha.1 loads in Minecraft, but reported dark LOD silhouettes around nearby trees and buildings. The alpha.2 correction still needs visual validation in the game.** This is not an official release from the original author.
+**Status: alpha.3. GLSL compilation and synthetic rendering tests have passed. In-game testing of alpha.2 still showed dark LODs and nearby silhouettes; alpha.3 addresses their lighting and transition. Visual confirmation of alpha.3 is still pending.** This is not an official release from the original author.
 
 ## Target environment
 
@@ -16,7 +16,7 @@ This adapts the shaderpack; it does not modify the Minecraft, Iris, or DH JARs. 
 ## Installation
 
 1. Run `python3 tools/build_pack.py` or use the generated ZIP in `dist/`.
-2. Copy `Yamashita-Shimejize-mc26.2-DH-alpha.2.zip` into your instance's `shaderpacks` folder.
+2. Copy `Yamashita-Shimejize-mc26.2-DH-alpha.3.zip` into your instance's `shaderpacks` folder.
 3. Select it in Iris. The ZIP contains `shaders/` directly at its root.
 4. Start with the LOW or NORMAL profile, a normal render distance of 8–12 chunks, and DH set to 128 chunks. Adjust based on performance.
 
@@ -25,7 +25,7 @@ Enable shadows cast by LOD terrain using **Distant Horizons shadows** in the lig
 ## Changes
 
 - `dh_terrain`, `dh_water`, and `dh_shadow` programs for the Overworld, Nether, and End.
-- Reuse of the original shader's lighting, fog, emissive materials, and water outputs; LODs use the color supplied by DH.
+- Reuse of the original shader's lighting, fog, emissive materials, and water outputs; LODs use DH's color and light levels with ambient lighting independent of Minecraft's lightmap texture binding.
 - Comparison of positions reconstructed with each projection, rather than depth values from different ranges.
 - Shared depth handling for clouds, reflections, motion blur, depth of field, bloom, heat effects, and sky effect occlusion.
 - Fog adjusted to DH's render distance for both nearby and distant terrain.
@@ -34,11 +34,18 @@ Enable shadows cast by LOD terrain using **Distant Horizons shadows** in the lig
 
 Iris 1.11.4 transforms depth reads and positions for reverse-Z rendering in 26.2. The pack keeps the depth convention Iris exposes to shaders; it does not invert the values a second time.
 
+### Alpha.3: dark LODs and persistent silhouettes
+
+- **Near transition:** DH's API clip distance only removes the closest geometry. It still allowed coarse shapes beside nearby leaves and roofs. Terrain and water now fade in between 40% and 60% of the normal render distance, using cylindrical distance and the pack's Bayer dithering. At 8 normal chunks, that is approximately 51–77 blocks. The transition discards both color and depth; distant geometry remains fully visible. As with any distance-based transition, missing normal chunks can expose gaps while loading or flying quickly.
+- **Ambient light:** the installed DH 3.3.2 OpenGL renderer binds its lightmap on texture unit 0, while Iris 1.11.4's external `lightmap` sampler expects unit 2. Relying on that external binding in DH passes can produce black ambient light. LOD terrain and water now derive ambient light from their skylight levels and the pack's existing day/night/weather colors. Block lights, sunlight and shadows still use the existing lighting path. Normal terrain retains its original lightmap sampling. The LOD ambient approximation still needs visual comparison at the transition, including night and rain.
+
+The user-provided tutorial explains compatibility attributes, LOD vertex color, light levels, depth rejection and fog for Minecraft 1.20.6. The target-version JARs were also inspected: their texture binding and clipping behavior cannot be inferred from that older tutorial alone.
+
 ### Alpha.2: nearby LOD overlap
 
 Terrain and water now explicitly use `dhProjection` when writing depth, matching `dhProjectionInverse` in the clipping and post-processing passes. With DH 3.3.2, the legacy projection used by `ftransform()` can have a different near plane: DH caps its raster projection near plane at 7.5 blocks in the usual case, while Iris builds `dhProjection` from DH's API clip distance. Mixing these matrices reconstructed incorrect distances.
 
-Both passes also apply DH's supplied `clipDistance` as a camera-relative radial exclusion. The old depth-only comparison could not remove simplified LODs protruding into sky pixels beside leaves and roofs. The exclusion respects DH's overdraw setting and works independently of camera orientation. This targets the reported silhouettes; visual confirmation is still required.
+Both passes also apply DH's supplied `clipDistance` as a camera-relative radial exclusion. The old depth-only comparison could not remove simplified LODs protruding into sky pixels beside leaves and roofs. In-game testing showed this exclusion was insufficient; alpha.3 adds the wider transition described above.
 
 ## Reproducible validation
 
@@ -54,11 +61,11 @@ The GLSL check compiles and links 300 program pairs, covering dimension folders,
 
 The depth test executes the resolver's actual GLSL in a floating-point framebuffer with seven synthetic scenes: nearby surfaces, DH surfaces, overlaps, geometry near the far limit, and sky. It includes a case where comparing depth values directly would select the wrong surface.
 
-It also renders 16 cases through the real DH terrain/water vertex programs and shared clipping GLSL, checking near exclusion against sky, camera rotation, depth ordering, distant terrain, and a deliberately mismatched legacy projection. These cases reproduced the alpha.1 failure before the correction.
+It also renders 18 cases through the real DH terrain/water vertex programs and shared clipping GLSL, checking near exclusion against sky, camera rotation, depth ordering, distant terrain, and a deliberately mismatched legacy projection. A further 28 dither tiles check transition coverage at two normal render distances and two orientations. Eight full terrain/water lighting cases deliberately bind a black Minecraft lightmap and check daylight, night, cave darkness and block light with fog disabled. Replaying the old lightmap-dependent path fails the daylight check. There are 61 rendered scenarios in total.
 
 ## Pending in-game checks
 
-- Revisit the affected trees and buildings with alpha.2 selected. Keep DH enabled and turn the camera; check silhouettes and leaf gaps, then move toward distant terrain to inspect the transition.
+- Revisit the affected trees and buildings with alpha.3 selected. Keep DH enabled and turn the camera; check silhouettes and leaf gaps, then move toward distant terrain to inspect the transition and compare nearby/distant brightness.
 - Load and reload the pack without errors, first with DH disabled and then enabled.
 - Fly across the transition between normal chunks and LODs; check lighting, gaps, and fog during the day, at night, and in rain.
 - Inspect oceans, coastlines, water from below the surface, and mountains in front of/behind clouds.

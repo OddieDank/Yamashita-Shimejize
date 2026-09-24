@@ -242,6 +242,7 @@ float getPuddleMask(vec3 absWorldPos, vec3 worldGeoNormal, vec2 lightmapUV, vec4
 
 #ifdef YS_DH
 #include "/common/dh_clip.glsl"
+#include "/common/dh_ambient.glsl"
 #endif
 
 void main() {
@@ -264,7 +265,11 @@ void main() {
 
    #endif
 
-   vec4 ambient = texture2D(lightmap, vec2(AMBIENT_UV.s, runtimeLightUV.t));
+   #ifdef YS_DH
+      vec4 ambient = ysDhAmbient(runtimeLightUV);
+   #else
+      vec4 ambient = texture2D(lightmap, vec2(AMBIENT_UV.s, runtimeLightUV.t));
+   #endif
 
    #ifdef GLOWING_ORES
       ambient.rgb = mix(

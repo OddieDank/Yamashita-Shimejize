@@ -5,7 +5,7 @@ from pathlib import Path
 from zipfile import ZipFile, ZipInfo, ZIP_DEFLATED
 
 root = Path(__file__).resolve().parents[1]
-output = root / 'dist' / 'Yamashita-Shimejize-mc26.2-DH-alpha.2.zip'
+output = root / 'dist' / 'Yamashita-Shimejize-mc26.2-DH-alpha.3.zip'
 output.parent.mkdir(exist_ok=True)
 files = sorted(p for p in (root / 'shaders').rglob('*') if p.is_file())
 files.append(root / 'README.md')

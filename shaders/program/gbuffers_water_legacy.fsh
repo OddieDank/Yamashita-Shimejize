@@ -62,6 +62,7 @@ varying float diffuse;
 
 #ifdef YS_DH
 #include "/common/dh_clip.glsl"
+#include "/common/dh_ambient.glsl"
 #endif
 
 void main() {
@@ -74,7 +75,11 @@ void main() {
       vec4 albedo = texture2D(texture, texUV);
    #endif
 	vec2 runtimeLightUV = clamp(lightUV, 0.0, 1.0);
-	vec4 ambient = texture2D(lightmap, vec2(AMBIENT_UV.s, runtimeLightUV.t));
+   #ifdef YS_DH
+      vec4 ambient = ysDhAmbient(runtimeLightUV);
+   #else
+      vec4 ambient = texture2D(lightmap, vec2(AMBIENT_UV.s, runtimeLightUV.t));
+   #endif
 
 	float isPortal = isNetherPortal;
 	float waterSurfaceMask = clamp(isWater, 0.0, 1.0);
