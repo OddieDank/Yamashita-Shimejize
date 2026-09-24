@@ -75,7 +75,12 @@ void main() {
       ysSetDhMaterial();
    #endif
 	vec4 modelViewPos = gl_ModelViewMatrix * gl_Vertex;
-	gl_Position = ftransform();
+   #ifdef YS_DH
+      // Match the matrix used to reconstruct DH depth in all later passes.
+      gl_Position = dhProjection * modelViewPos;
+   #else
+      gl_Position = ftransform();
+   #endif
 
 	color = gl_Color;
 	texUV = (gl_TextureMatrix[0] * gl_MultiTexCoord0).st;

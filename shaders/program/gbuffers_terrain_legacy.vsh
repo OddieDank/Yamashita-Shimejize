@@ -61,7 +61,12 @@ void main() {
    #ifdef YS_DH
       ysSetDhMaterial();
    #endif
-   gl_Position = ftransform();
+   #ifdef YS_DH
+      // Match the matrix used to reconstruct DH depth in all later passes.
+      gl_Position = dhProjection * gl_ModelViewMatrix * gl_Vertex;
+   #else
+      gl_Position = ftransform();
+   #endif
 
    lightUV = (gl_TextureMatrix[1] * gl_MultiTexCoord1).st;
    #ifdef YS_DH

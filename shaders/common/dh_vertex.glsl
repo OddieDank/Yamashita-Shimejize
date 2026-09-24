@@ -1,5 +1,7 @@
 // Map DH's coarse material categories to the existing lighting classifications.
 // Iris injects dhMaterialId; it must not be redeclared as an attribute.
+uniform mat4 dhProjection;
+
 vec4 mc_Entity;
 void ysSetDhMaterial() {
     float id = 0.0;

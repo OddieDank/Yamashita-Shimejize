@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render synthetic vanilla/DH depths through the actual GLSL surface resolver."""
+"""Render GLSL depth resolution, DH vertex projection and overlap clipping."""
 import ctypes as C
 import math
 from check_shaders import (ROOT, gl, bind, ptr, uint, integer, create_shader,
@@ -24,22 +24,27 @@ void main() {
                   scene.hit ? ysDepthMetric(scene.viewPos) : 1.0);
 }
 '''
-program = create_program()
-for kind, text in [(0x8B31, vertex), (0x8B30, fragment)]:
-    shader = create_shader(kind)
-    source_shader(shader, 1, C.byref(C.c_char_p(text.encode())), None)
-    compile_shader(shader)
+def make_program(vertex, fragment):
+    program = create_program()
+    for kind, text in [(0x8B31, vertex), (0x8B30, fragment)]:
+        shader = create_shader(kind)
+        source_shader(shader, 1, C.byref(C.c_char_p(text.encode())), None)
+        compile_shader(shader)
+        ok = integer()
+        get_shader(shader, 0x8B81, C.byref(ok))
+        log = C.create_string_buffer(10000)
+        log_shader(shader, len(log), None, log)
+        assert ok.value, log.value.decode()
+        attach(program, shader)
+    link(program)
     ok = integer()
-    get_shader(shader, 0x8B81, C.byref(ok))
-    log = C.create_string_buffer(10000)
-    log_shader(shader, len(log), None, log)
+    get_program(program, 0x8B82, C.byref(ok))
+    log_program(program, len(log), None, log)
     assert ok.value, log.value.decode()
-    attach(program, shader)
-link(program)
-ok = integer()
-get_program(program, 0x8B82, C.byref(ok))
-log_program(program, len(log), None, log)
-assert ok.value, log.value.decode()
+    return program
+
+
+program = make_program(vertex, fragment)
 bind(gl, 'glUseProgram', None, uint)(program)
 uniform = bind(gl, 'glGetUniformLocation', integer, uint, C.c_char_p)
 set_int = bind(gl, 'glUniform1i', None, integer, integer)
@@ -105,3 +110,80 @@ for vanilla, distant, expected, expect_dh in cases:
     else:
         assert metric == 1.0
 print(f'PASS: {len(cases)} rendered depth cases, including overlap, far terrain and sky.')
+
+# Exercise the real DH terrain/water vertex paths and shared fragment clipping.
+# Iris's legacy matrix can have a 7.5-block near plane while dhProjection uses
+# the API distance (16 here). Both drawing and reconstruction must use the latter.
+from check_shaders import prepare
+
+fragment = '''#version 330 compatibility
+uniform float viewWidth, viewHeight;
+uniform mat4 gbufferProjectionInverse;
+varying vec3 worldPos;
+''' + (ROOT / 'common/dh_clip.glsl').read_text() + '''
+out vec4 result;
+void main() {
+    ysClipDhBehindVanilla();
+    vec4 p = dhProjectionInverse * vec4(0.0, 0.0, gl_FragCoord.z * 2.0 - 1.0, 1.0);
+    result = vec4(-p.z / p.w, 1.0, 1.0, 1.0);
+}
+'''
+set_float = bind(gl, 'glUniform1f', None, integer, C.c_float)
+matrix_mode = bind(gl, 'glMatrixMode', None, uint)
+load_matrix = bind(gl, 'glLoadMatrixf', None, ptr)
+begin = bind(gl, 'glBegin', None, uint)
+end = bind(gl, 'glEnd', None)
+vertex3 = bind(gl, 'glVertex3f', None, C.c_float, C.c_float, C.c_float)
+clear = bind(gl, 'glClear', None, uint)
+
+
+def forward(near, far):
+    return (C.c_float * 16)(1,0,0,0, 0,1,0,0,
+        0,0,-(far+near)/(far-near),-1, 0,0,-2*far*near/(far-near),0)
+
+
+# name, normal surface distance, LOD distance, radial exclusion, yaw, visibility
+overlap_cases = [
+    ('sky beside nearby leaves', None, 24, 32, 0, False),
+    ('same leaves after camera rotation', None, 24, 32, 55, False),
+    ('outside exclusion radius', None, 40, 32, 0, True),
+    ('outside radius after rotation', None, 40, 32, 55, True),
+    ('LOD in front of normal geometry', 100, 80, 16, 0, True),
+    ('LOD behind normal geometry', 80, 100, 16, 0, False),
+    ('distant terrain against sky', None, 2048, 16, 0, True),
+    ('zero exclusion', None, 24, 0, 0, True),
+]
+for name in ['dh_terrain.vsh', 'dh_water.vsh']:
+    program = make_program(prepare(ROOT / name, True, {}), fragment)
+    bind(gl, 'glUseProgram', None, uint)(program)
+    set_int(uniform(program, b'depthtex0'), 0)
+    for key in [b'viewWidth', b'viewHeight']:
+        set_float(uniform(program, key), 1)
+    vanilla_depth = projection(b'gbufferProjectionInverse', .05, 128)
+    projection(b'dhProjectionInverse', 16, 8192)
+    set_matrix(uniform(program, b'dhProjection'), 1, 0, forward(16, 8192))
+    matrix_mode(0x1701)  # GL_PROJECTION: deliberately differs from dhProjection.
+    load_matrix(forward(7.5, 8192))
+    for label, vanilla, distance, radius, yaw, visible in overlap_cases:
+        c, s = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
+        rotation = (C.c_float * 16)(c,0,-s,0, 0,1,0,0, s,0,c,0, 0,0,0,1)
+        inverse = (C.c_float * 16)(c,0,s,0, 0,1,0,0, -s,0,c,0, 0,0,0,1)
+        matrix_mode(0x1700)  # GL_MODELVIEW
+        load_matrix(rotation)
+        set_matrix(uniform(program, b'gbufferModelViewInverse'), 1, 0, inverse)
+        set_float(uniform(program, b'clipDistance'), radius)
+        active_tex(0x84C0)
+        bind_tex(0x0DE1, textures[0])
+        tex_image(0x0DE1, 0, 0x822E, 1, 1, 0, 0x1903, 0x1406,
+                  C.byref(C.c_float(vanilla_depth(vanilla))))
+        clear(0x4000)  # A discarded fragment must leave the clear color intact.
+        begin(0x0004)
+        for x, y in [(-distance, -distance), (3*distance, -distance), (-distance, 3*distance)]:
+            vertex3(c*x + s*distance, y, s*x - c*distance)
+        end()
+        pixel = (C.c_float * 4)()
+        read(0, 0, 1, 1, 0x1908, 0x1406, pixel)
+        assert bool(pixel[1]) == visible, (name, label, tuple(pixel))
+        if visible:
+            assert math.isclose(pixel[0], distance, rel_tol=.001), (name, label, tuple(pixel))
+print(f'PASS: {2 * len(overlap_cases)} rendered DH clipping/projection cases (terrain and water).')
