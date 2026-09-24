@@ -2,7 +2,7 @@
 
 Experimental adaptation of [rindefault/Yamashita-Shimejize](https://github.com/rindefault/Yamashita-Shimejize), based on commit `e5f709fd149bf26f5c5d60ae8481b001fcac279a`.
 
-**Status: alpha.3. GLSL compilation and synthetic rendering tests have passed. In-game testing of alpha.2 still showed dark LODs and nearby silhouettes; alpha.3 addresses their lighting and transition. Visual confirmation of alpha.3 is still pending.** This is not an official release from the original author.
+**Status: alpha.3. GLSL compilation and synthetic rendering tests have passed. In-game testing of alpha.2 still showed dark LODs and nearby silhouettes; alpha.3 addresses their lighting and transition, the silhouettes have disappear but there still exist some water reflections artifacts.** This is not an official release from the original author.
 
 ## Target environment
 
