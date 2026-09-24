@@ -294,6 +294,7 @@ vec4 getPuddleReflectionColor(vec2 uv, float depth, vec3 normal, vec3 fragPos) {
 	int refineCount = 0;
 
 	for (int _ = 0; _ < MAX_RAYS; _++) {
+		if (curPos.z >= -0.05) break;
 		vec2 curUV = screen2uv(curPos);
 
 		if (curUV.s < 0.0 || curUV.s > 1.0 || curUV.t < 0.0 || curUV.t > 1.0)
@@ -316,15 +317,12 @@ vec4 getPuddleReflectionColor(vec2 uv, float depth, vec3 normal, vec3 fragPos) {
 		float dist = abs(curPos.z - samplePos.z);
 		float len = squaredLength(reflection);
 
-		if (dist * dist < 2.0 * len * exp(0.03 * len) && !isWaterInfoPixel(ditheredUV)) {
+		if (sampleHit && curPos.z <= samplePos.z && dist * dist < 2.0 * len && !isWaterInfoPixel(ditheredUV)) {
 			refineCount++;
 
-			if (refineCount >= MAX_REFINEMENTS && isReflectionDepthAcceptable(sampleDepth, samplePos, depth, fragPos)) {
-				vec2 reflectionUV = clamp(curUV + getReflectionWaveOffset(curUV, 0.0), vec2(0.0), vec2(1.0));
-				vec2 reflectionPixelUV = pixelateUV(reflectionUV);
-				vec3 reflectedColor = sampleFinalTexture(colortex0, reflectionPixelUV).rgb;
-				float vignette = getReflectionVignette(curUV);
-				return vec4(reflectedColor, vignette);
+			if (refineCount >= MAX_REFINEMENTS) {
+				vec4 candidate = getValidatedReflectionColor(ditheredUV, curPos, fragPos, normal, 0.0);
+				if (candidate.a > 0.0) return candidate;
 			}
 
 			curPos = oldPos;
@@ -534,7 +532,7 @@ vec3 applyPixelDof(vec3 currentColor, vec2 uv, float depth, float effectBlockMas
 
 void main() {
 	vec4 color = sampleFinalTexture(colortex0, texUV);
-	vec4 info  = sampleFinalTexture(colortex7, texUV);
+	vec4 info  = sampleFinalScreenNearest(colortex7, texUV);
 
 	float depth = ysSceneDepthMetric(texUV);
 	vec4 effectData = sampleFinalEffectDataNearest(texUV);
@@ -555,7 +553,7 @@ void main() {
 		// the normal doesn't come premultiplied by the normal matrix to
 		// avoid the modelview transformations when view bobbing is on
 		// which causes severe artifacts when moving
-		vec3 prenormal = sampleFinalTexture(colortex6, texUV).xyz*2.0 - 1.0;
+		vec3 prenormal = sampleFinalScreenNearest(colortex6, texUV).xyz*2.0 - 1.0;
 
 		#if WATER_WAVE_SIZE > 0
 
@@ -567,10 +565,10 @@ void main() {
 
 		float dither = bayer2(texUV / 4);
 
-		vec3 normal          = world2screen(prenormal);
+		vec3 normal          = normalize(world2screen(prenormal));
 		vec3 fragPos         = ysSceneDepth(texUV).viewPos;
 		vec4 reflectionColor = getReflectionColor(depth, normal, fragPos, dither);
-		float fresnel        = 1.0 - dot(normal, -normalize(fragPos));
+		float fresnel        = 1.0 - clamp(dot(normal, -normalize(fragPos)), 0.0, 1.0);
 		float reflFade = 1.0;
 		if (info.y > 0.99) {
 			// Only damp far reflection in rain; keep dry-weather reflections intact.

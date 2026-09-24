@@ -290,3 +290,125 @@ for name in ['dh_terrain', 'dh_water']:
     assert torch > cave + .05, (name, 'missing block light', luminances)
     print(f'PASS: {name} lighting with black lightmap: day/night/cave/torch = '
           + '/'.join(f'{v:.3f}' for v in luminances))
+
+# Reflections must validate the texel *after* wave displacement. Model a red
+# target surrounded by blue foreground/background/water/sky texels: only a
+# neighbor on the same reflected surface may contribute blue to the result.
+reflection_header = '''#version 330 compatibility
+#define DISTANT_HORIZONS
+uniform sampler2D depthtex0, colortex0, colortex7;
+uniform mat4 gbufferProjection, gbufferProjectionInverse;
+uniform mat4 gbufferModelView, gbufferModelViewInverse;
+uniform vec3 testRay, testOrigin;
+'''
+reflection_source = ''.join((ROOT / p).read_text() for p in [
+    'common/math.glsl', 'common/transformations.fsh', 'common/scene_depth.glsl',
+    'common/getReflectionColor.fsh'])
+program = make_program(vertex, reflection_header + reflection_source + '''
+void main() {
+    gl_FragColor = getValidatedReflectionColor(vec2(0.53), testRay, testOrigin,
+                                              vec3(0.0, 1.0, 0.0), 0.0);
+}
+''')
+bind(gl, 'glUseProgram', None, uint)(program)
+refl_textures = (uint * 4)()
+gen_tex(4, refl_textures)
+for i, key in enumerate([b'depthtex0', b'dhDepthTex0', b'colortex0', b'colortex7']):
+    active_tex(0x84C0 + i)
+    bind_tex(0x0DE1, refl_textures[i])
+    # Linear filtering deliberately stresses silhouette boundaries. Sampling
+    # texel centers must keep the hit's depth, material and color consistent.
+    tex_param(0x0DE1, 0x2801, 0x2601)
+    tex_param(0x0DE1, 0x2800, 0x2601)
+    set_int(uniform(program, key), i)
+vanilla_depth = projection(b'gbufferProjectionInverse', .05, 128)
+dh_depth = projection(b'dhProjectionInverse', 4, 8192)
+for key in [b'viewWidth', b'viewHeight']:
+    set_float(uniform(program, key), 16)
+set_vec3(uniform(program, b'testRay'), .625, .625, -10)
+set_vec3(uniform(program, b'testOrigin'), 0, -1, -2)
+colors = [0.,0.,1.,1.] * 256
+center = 8 * 16 + 8
+colors[center*4:center*4+4] = [1.,0.,0.,1.]
+
+
+def upload_reflection(i, values, components=1):
+    active_tex(0x84C0 + i)
+    bind_tex(0x0DE1, refl_textures[i])
+    tex_image(0x0DE1, 0, 0x8814 if components == 4 else 0x822E, 16, 16, 0,
+              0x1908 if components == 4 else 0x1903, 0x1406,
+              (C.c_float * len(values))(*values))
+
+
+upload_reflection(2, colors, 4)
+for distant in [False, True]:
+    for neighbor, water, expected in [(6,False,(1,0,0)), (30,False,(1,0,0)),
+            (None,False,(1,0,0)), (10,True,(1,0,0)), (10,False,(0,0,1))]:
+        distances = [neighbor] * 256
+        distances[center] = 10
+        upload_reflection(0, [1. if distant else vanilla_depth(d) for d in distances])
+        upload_reflection(1, [dh_depth(d) if distant else 1. for d in distances])
+        masks = [float(water),float(water),0.,1.] * 256
+        masks[center*4:center*4+4] = [0.,0.,0.,1.]
+        upload_reflection(3, masks, 4)
+        draw(0x0004, 0, 3)
+        pixel = (C.c_float * 4)()
+        read(0, 0, 1, 1, 0x1908, 0x1406, pixel)
+        assert pixel[3] > 0 and all(abs(pixel[i]-expected[i]) < .001 for i in range(3)), (
+            'reflection sampled a different surface', distant, neighbor, water, tuple(pixel))
+    for invalid in ['sky', 'water', 'off ray', 'below plane']:
+        distance = None if invalid == 'sky' else 10
+        upload_reflection(0, [1. if distant else vanilla_depth(distance)] * 256)
+        upload_reflection(1, [dh_depth(distance) if distant else 1.] * 256)
+        upload_reflection(3, [float(invalid == 'water'),0.,0.,1.] * 256, 4)
+        set_vec3(uniform(program, b'testRay'), .625,.625,-20 if invalid == 'off ray' else -10)
+        set_vec3(uniform(program, b'testOrigin'), 0,2 if invalid == 'below plane' else -1,-2)
+        draw(0x0004, 0, 3)
+        pixel = (C.c_float * 4)()
+        read(0, 0, 1, 1, 0x1908, 0x1406, pixel)
+        assert pixel[3] == 0, (invalid, tuple(pixel))
+    set_vec3(uniform(program, b'testRay'), .625,.625,-10)
+    set_vec3(uniform(program, b'testOrigin'), 0,-1,-2)
+print('PASS: reflection texels reject foreground/background leaks, water, sky and false ray hits.')
+
+# Exercise both complete ray marchers as well: the fix must retain a valid
+# reflection, rather than merely make every reflection transparent.
+for puddle in [False, True]:
+    if puddle:
+        source = prepare(ROOT / 'final.fsh', True, {}).replace('void main()', 'void unusedFinalMain()')
+        source += '''
+void main() {
+    gl_FragData[0] = getPuddleReflectionColor(vec2(0.5), 0.975,
+                         vec3(0.0, 1.0, 0.0), vec3(0.0, -1.0, -2.0));
+}
+'''
+    else:
+        source = reflection_header + reflection_source + '''
+void main() {
+    gl_FragColor = getReflectionColor(0.975, vec3(0.0, 1.0, 0.0),
+                                     vec3(0.0, -1.0, -2.0), 0.0);
+}
+'''
+    program = make_program(vertex, source)
+    bind(gl, 'glUseProgram', None, uint)(program)
+    for i, key in enumerate([b'depthtex0', b'dhDepthTex0', b'colortex0', b'colortex7']):
+        set_int(uniform(program, key), i)
+    for key in [b'viewWidth', b'viewHeight']:
+        set_float(uniform(program, key), 16)
+    set_matrix(uniform(program, b'gbufferProjection'), 1, 0, forward(.05, 128))
+    set_matrix(uniform(program, b'gbufferModelViewInverse'), 1, 0, identity)
+    vanilla_depth = projection(b'gbufferProjectionInverse', .05, 128)
+    dh_depth = projection(b'dhProjectionInverse', 4, 8192)
+    upload_reflection(2, [0.,1.,0.,1.] * 256, 4)
+    upload_reflection(3, [0.] * 1024, 4)
+    for distant in [False, True]:
+        for distance in [10, None]:
+            upload_reflection(0, [1. if distant else vanilla_depth(distance)] * 256)
+            upload_reflection(1, [dh_depth(distance) if distant else 1.] * 256)
+            draw(0x0004, 0, 3)
+            pixel = (C.c_float * 4)()
+            read(0, 0, 1, 1, 0x1908, 0x1406, pixel)
+            assert (pixel[3] > 0) == (distance is not None), (puddle, distant, distance, tuple(pixel))
+            if distance is not None:
+                assert abs(pixel[1] - 1.) < .001, tuple(pixel)
+print('PASS: water and puddle ray marchers retain valid normal/DH reflections and reject sky.')

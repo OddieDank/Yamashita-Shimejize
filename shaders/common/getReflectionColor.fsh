@@ -30,10 +30,6 @@ vec3 sampleReflectionScenePos(vec2 uv, out float sampleDepth, out bool sceneHit)
     return scene.viewPos;
 }
 
-bool isReflectionDepthAcceptable(float sampleDepth, vec3 samplePos, float currentDepth, vec3 currentPos) {
-    return sampleDepth < 1.0 && -samplePos.z + 0.05 >= -currentPos.z;
-}
-
 bool isSceneInfoWater(vec4 info) {
 	return info.x > 0.99;
 }
@@ -51,7 +47,7 @@ vec2 ditherUV(vec2 uv) {
 
 vec2 pixelateUV(vec2 uv) {
 	float pixelSize = 2.0;
-	return floor(uv * vec2(viewWidth, viewHeight) / pixelSize) * pixelSize / vec2(viewWidth, viewHeight);
+	return (floor(uv * vec2(viewWidth, viewHeight) / pixelSize) * pixelSize + 0.5) / vec2(viewWidth, viewHeight);
 }
 
 vec2 getReflectionWaveOffset(vec2 uv, float dither) {
@@ -99,6 +95,31 @@ float getReflectionVignette(vec2 uv) {
   return 1.0 - pow(1.0 - uv.x, 20.0*uv.y);
 }
 
+// Validate the exact texel supplying reflection color, including wave offsets.
+// A hit must lie near the ray and above the reflecting plane. Camera-depth
+// ordering alone cannot distinguish an intersection from a foreground edge.
+vec4 getValidatedReflectionColor(vec2 hitUV, vec3 rayPos, vec3 origin, vec3 normal, float dither) {
+    vec2 size = vec2(viewWidth, viewHeight);
+    hitUV = (floor(hitUV * size) + 0.5) / size;
+    if (any(lessThan(hitUV, vec2(0.0))) || any(greaterThanEqual(hitUV, vec2(1.0)))) return vec4(0.0);
+    YsSceneDepth hit = ysSceneDepth(hitUV);
+    float thickness = clamp(-hit.viewPos.z * 0.005, 0.1, 1.0);
+    if (!hit.hit || isWaterInfoPixel(hitUV)
+        || abs(hit.viewPos.z - rayPos.z) > thickness
+        || dot(hit.viewPos - origin, normal) <= 0.02) return vec4(0.0);
+
+    vec2 colorUV = pixelateUV(hitUV + getReflectionWaveOffset(hitUV, dither));
+    if (any(lessThan(colorUV, vec2(0.0))) || any(greaterThanEqual(colorUV, vec2(1.0)))) {
+        colorUV = hitUV;
+    } else {
+        YsSceneDepth shifted = ysSceneDepth(colorUV);
+        if (!shifted.hit || isWaterInfoPixel(colorUV)
+            || abs(shifted.viewPos.z - hit.viewPos.z) > thickness
+            || dot(shifted.viewPos - origin, normal) <= 0.02) colorUV = hitUV;
+    }
+    return vec4(sampleReflectionTexture(colortex0, colorUV).rgb, getReflectionVignette(hitUV));
+}
+
 vec4 getReflectionColor(float depth, vec3 normal, vec3 fragPos, float dither) {
 	vec3 reflection = normalize(reflect(fragPos, normal));
 	vec3 curPos = fragPos + reflection;
@@ -107,6 +128,7 @@ vec4 getReflectionColor(float depth, vec3 normal, vec3 fragPos, float dither) {
 	int j = 0;
 
 	for (int _ = 0; _ < MAX_RAYS; _++) {
+		if (curPos.z >= -0.05) break;
 		vec2 curUV = screen2uv(curPos);
 
 		if (curUV.s < 0.0 || curUV.s > 1.0 || curUV.t < 0.0 || curUV.t > 1.0)
@@ -121,17 +143,14 @@ vec4 getReflectionColor(float depth, vec3 normal, vec3 fragPos, float dither) {
 		float dist = abs(curPos.z - samplePos.z);
 		float len = squaredLength(reflection);
 
-		if (dist*dist < 2.0*len * exp(0.03*len) && !isWaterInfoPixel(ditheredUV)) {
+		// Refine only after crossing the surface; refining in front of it
+		// stalls the ray and can accept silhouettes that it never intersects.
+		if (sampleHit && curPos.z <= samplePos.z && dist*dist < 2.0*len && !isWaterInfoPixel(ditheredUV)) {
 			j++;
 
-			if (j >= MAX_REFINEMENTS && isReflectionDepthAcceptable(sampleDepth, samplePos, depth, fragPos)) {
-				// Animate only reflection sampling, then re-apply pixel+dither snapping.
-				vec2 reflectionUV = clamp(curUV + getReflectionWaveOffset(curUV, dither), vec2(0.0), vec2(1.0));
-				vec2 reflectionPixelUV = pixelateUV(reflectionUV);
-				vec3 reflectedColor = sampleReflectionTexture(colortex0, reflectionPixelUV).rgb;
-				float vignette = getReflectionVignette(curUV);
-				
-				return vec4(reflectedColor, vignette);
+			if (j >= MAX_REFINEMENTS) {
+				vec4 candidate = getValidatedReflectionColor(ditheredUV, curPos, fragPos, normal, dither);
+				if (candidate.a > 0.0) return candidate;
 			}
 
 			curPos = oldPos;

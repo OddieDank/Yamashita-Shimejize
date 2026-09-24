@@ -2,7 +2,7 @@
 
 Experimental adaptation of [rindefault/Yamashita-Shimejize](https://github.com/rindefault/Yamashita-Shimejize), based on commit `e5f709fd149bf26f5c5d60ae8481b001fcac279a`.
 
-**Status: alpha.3. GLSL compilation and synthetic rendering tests have passed. In-game testing of alpha.2 still showed dark LODs and nearby silhouettes; alpha.3 addresses their lighting and transition, the silhouettes have disappear but there still exist some water reflections artifacts.** This is not an official release from the original author.
+**Status: alpha.4. The user confirmed that alpha.3 fixed dark LODs and nearby silhouettes. Alpha.4 targets remaining reflection artifacts and cloud movement with view bobbing. GLSL and synthetic rendering checks have passed; visual confirmation of alpha.4 is still pending.** This is not an official release from the original author.
 
 ## Target environment
 
@@ -16,7 +16,7 @@ This adapts the shaderpack; it does not modify the Minecraft, Iris, or DH JARs. 
 ## Installation
 
 1. Run `python3 tools/build_pack.py` or use the generated ZIP in `dist/`.
-2. Copy `Yamashita-Shimejize-mc26.2-DH-alpha.3.zip` into your instance's `shaderpacks` folder.
+2. Copy `Yamashita-Shimejize-mc26.2-DH-alpha.4.zip` into your instance's `shaderpacks` folder.
 3. Select it in Iris. The ZIP contains `shaders/` directly at its root.
 4. Start with the LOW or NORMAL profile, a normal render distance of 8–12 chunks, and DH set to 128 chunks. Adjust based on performance.
 
@@ -33,6 +33,14 @@ Enable shadows cast by LOD terrain using **Distant Horizons shadows** in the lig
 - Explicit declarations for matrices missing from the original programs that use the shared transformation functions.
 
 Iris 1.11.4 transforms depth reads and positions for reverse-Z rendering in 26.2. The pack keeps the depth convention Iris exposes to shaders; it does not invert the values a second time.
+
+### Alpha.4: reflections and normal clouds
+
+- Water and puddle reflections now refine only after the ray crosses scene depth, and require a bounded final depth match above the reflecting plane. The previous proximity heuristic could accept object silhouettes without a real intersection. Rays stop before passing behind the camera; the 16-step budget is unchanged.
+- The exact color texel is rechecked after wave displacement and pixelation. If the offset lands on foreground geometry, another depth layer, water or sky, sampling falls back to the validated hit. Depth, material and color samples use matching texel centers. Water normals are normalized and Fresnel is clamped.
+- With **Enhanced Clouds disabled**, the pack explicitly selects Minecraft's fancy clouds and disables DH's separate cloud renderer through Iris's `dhClouds=off` property. The target Iris/DH generic cloud path uses a different model-view matrix from terrain and is susceptible to view-bobbing drift. This bypasses that path without disabling view bobbing or DH terrain. Enhanced clouds continue to use the pack's own rendering.
+
+These remain screen-space reflections: off-screen and hidden geometry cannot be recovered, and rejected intersections can fade out. Check moving silhouettes, water/puddle edges and performance in the game.
 
 ### Alpha.3: dark LODs and persistent silhouettes
 
@@ -61,11 +69,15 @@ The GLSL check compiles and links 300 program pairs, covering dimension folders,
 
 The depth test executes the resolver's actual GLSL in a floating-point framebuffer with seven synthetic scenes: nearby surfaces, DH surfaces, overlaps, geometry near the far limit, and sky. It includes a case where comparing depth values directly would select the wrong surface.
 
-It also renders 18 cases through the real DH terrain/water vertex programs and shared clipping GLSL, checking near exclusion against sky, camera rotation, depth ordering, distant terrain, and a deliberately mismatched legacy projection. A further 28 dither tiles check transition coverage at two normal render distances and two orientations. Eight full terrain/water lighting cases deliberately bind a black Minecraft lightmap and check daylight, night, cave darkness and block light with fog disabled. Replaying the old lightmap-dependent path fails the daylight check. There are 61 rendered scenarios in total.
+It also renders 18 cases through the real DH terrain/water vertex programs and shared clipping GLSL, checking near exclusion against sky, camera rotation, depth ordering, distant terrain, and a deliberately mismatched legacy projection. A further 28 dither tiles check transition coverage at two normal render distances and two orientations. Eight full terrain/water lighting cases deliberately bind a black Minecraft lightmap and check daylight, night, cave darkness and block light with fog disabled. Replaying the old lightmap-dependent path fails the daylight check.
+
+Reflection tests add 18 cases for wave offsets, foreground/background boundaries, water, sky, ray mismatch and the reflecting plane, plus eight cases through the complete water/puddle ray marchers. They retain valid reflections with normal and DH depths. There are 87 rendered scenarios in total. Cloud renderer selection was checked against the installed Iris 1.11.4 property parser; view-bobbing behavior still requires an in-game check.
 
 ## Pending in-game checks
 
-- Revisit the affected trees and buildings with alpha.3 selected. Keep DH enabled and turn the camera; check silhouettes and leaf gaps, then move toward distant terrain to inspect the transition and compare nearby/distant brightness.
+- With alpha.4 selected, revisit the tree and lamp beside water, move and turn the camera, and check reflection edges. Test rain puddles as well.
+- Disable Enhanced Clouds and walk/sprint with view bobbing enabled. Confirm that Minecraft's normal clouds remain aligned with the world; also test Enhanced Clouds enabled.
+- Keep DH enabled and check silhouettes and leaf gaps, then move toward distant terrain to inspect the transition and compare nearby/distant brightness.
 - Load and reload the pack without errors, first with DH disabled and then enabled.
 - Fly across the transition between normal chunks and LODs; check lighting, gaps, and fog during the day, at night, and in rain.
 - Inspect oceans, coastlines, water from below the surface, and mountains in front of/behind clouds.
