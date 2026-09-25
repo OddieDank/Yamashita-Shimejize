@@ -5,7 +5,7 @@ from pathlib import Path
 from zipfile import ZipFile, ZipInfo, ZIP_DEFLATED
 
 root = Path(__file__).resolve().parents[1]
-output = root / 'dist' / 'Yamashita-Shimejize-mc26.2-DH-alpha.4.zip'
+output = root / 'dist' / 'Yamashita-Shimejize-mc26.2-DH-alpha.5.zip'
 output.parent.mkdir(exist_ok=True)
 files = sorted(p for p in (root / 'shaders').rglob('*') if p.is_file())
 files.append(root / 'README.md')
@@ -13,7 +13,7 @@ names = [p.relative_to(root).as_posix().lower() for p in files]
 assert len(names) == len(set(names)), 'Case-insensitive file name collision in shaderpack'
 with ZipFile(output, 'w', compression=ZIP_DEFLATED) as archive:
     for file in files:
-        entry = ZipInfo(file.relative_to(root).as_posix(), (2026, 9, 24, 0, 0, 0))
+        entry = ZipInfo(file.relative_to(root).as_posix(), (2026, 9, 25, 0, 0, 0))
         entry.compress_type = ZIP_DEFLATED
         entry.external_attr = 0o644 << 16
         archive.writestr(entry, file.read_bytes())

@@ -211,10 +211,9 @@ void main() {
       sunStrength *= 0.50;
       float shadowFactor = 0.35;
 
-      const float SHADOW_MAX_BLACKNESS = 0.6;
       vec3 shadowColor = vec3(1.0);
 
-      ambient.rgb *= shadowColor * (1.0 - shadowFactor * SHADOW_MAX_BLACKNESS);
+      ambient.rgb *= shadowColor * (1.0 - shadowFactor * SHADOW_AMBIENT_STRENGTH);
 
       float blueness = shadowFactor * SHADOW_BLUENESS;
       ambient.g *= 1.0 + 0.3333 * blueness;

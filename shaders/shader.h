@@ -133,6 +133,8 @@ const float OVERWORLD_FOG_MIN = 1.0 - 0.1*OVERWORLD_FOG_MAX_SLIDER;
 const float OVERWORLD_FOG_MAX = 1.0 - 0.1*OVERWORLD_FOG_MIN_SLIDER;
 const float NETHER_FOG = 2.0 - 0.1*NETHER_FOG_SLIDER;
 const float ambientOcclusionLevel = 1.0f;
+// Preserve the original 0.6 attenuation at the default Shadow Darkness (0.4).
+const float SHADOW_AMBIENT_STRENGTH = min(1.5 * SHADOW_DARKNESS, 1.0);
 
 const vec2 AMBIENT_UV = vec2(8.0/255.0, 247.0/255.0);
 const vec2 TORCH_UV_SCALE = vec2(8.0/255.0, 231.0/255.0);

@@ -570,6 +570,10 @@ void main() {
   }
   #endif
 
-  float dither = bayer4(gl_FragCoord.xy * 0.5) / POSTERIZE_STRENGTH;
+  // Lift dark detail before quantization; doing this afterwards cannot recover
+  // the tones that posterization has already rounded down to black.
+  texColor.rgb = pow(max(texColor.rgb, vec3(0.0)), vec3(exp2(-BRIGHTNESS)));
+  texColor.rgb = clamp((texColor.rgb - 0.5) * CONTRAST + 0.5, 0.0, 1.0);
+  float dither = bayer4(gl_FragCoord.xy * 0.5);
   color.rgb = clamp(floor(texColor.rgb * POSTERIZE_STRENGTH + dither) / POSTERIZE_STRENGTH, 0.0, 1.0);
 }

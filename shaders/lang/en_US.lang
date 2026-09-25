@@ -122,7 +122,9 @@ option.ENABLE_RAINBOW=Enable rainbow
 value.ENABLE_RAINBOW.0=§cOff
 value.ENABLE_RAINBOW.1=§fOn
 option.BRIGHTNESS=Brightness
+option.BRIGHTNESS.comment=Lifts dark tones before posterization. Try 0.5 to 1.0 for night visibility, with Contrast at 1.0. Zero preserves the original tone curve.
 option.CONTRAST=Contrast
+option.CONTRAST.comment=Contrast around middle gray. Values above 1.0 can crush dark detail; start at 1.0 when adjusting night visibility.
 
 option.DH_SHADOWS=Distant Horizons shadows
 option.DH_SHADOWS.comment=Allow LOD terrain to cast shadows inside the configured shadow distance. Increases rendering cost.

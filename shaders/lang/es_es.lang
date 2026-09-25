@@ -1,3 +1,7 @@
 
 option.DH_SHADOWS=Sombras de Distant Horizons
 option.DH_SHADOWS.comment=Permite que el terreno lejano proyecte sombras dentro de la distancia configurada. Aumenta el coste de renderizado.
+option.BRIGHTNESS=Brillo
+option.BRIGHTNESS.comment=Aclara los tonos oscuros antes de posterizar. Prueba de 0.5 a 1.0 para ver de noche, con Contraste en 1.0. Cero conserva la curva original.
+option.CONTRAST=Contraste
+option.CONTRAST.comment=Contraste alrededor del gris medio. Los valores mayores que 1.0 pueden ocultar detalle oscuro; empieza en 1.0 al ajustar el brillo nocturno.

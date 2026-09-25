@@ -103,7 +103,7 @@ void main() {
 		float sunStrength = getSunStrength() * dayBright;
 		float shadowFactor = 1.0 - sunStrength;
 		float translucentShadow = mix(0.85, 0.55, waterSurfaceMask);
-		ambientRgb *= 1.0 - shadowFactor * 0.6 * translucentShadow;
+		ambientRgb *= 1.0 - shadowFactor * SHADOW_AMBIENT_STRENGTH * translucentShadow;
 
 		float blueness = shadowFactor * SHADOW_BLUENESS * translucentShadow;
 		ambientRgb.g *= 1.0 + 0.3333 * blueness;

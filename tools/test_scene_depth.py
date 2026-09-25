@@ -246,9 +246,11 @@ load_matrix(identity)
 lightcoord = bind(gl, 'glMultiTexCoord2f', None, uint, C.c_float, C.c_float)
 bind(gl, 'glColor4f', None, C.c_float, C.c_float, C.c_float, C.c_float)(.6,.6,.6,1)
 bind(gl, 'glNormal3f', None, C.c_float, C.c_float, C.c_float)(1,0,0)
-for name in ['dh_terrain', 'dh_water']:
+lighting_results = {}
+for name, shadow_darkness in [(name, value) for name in ['dh_terrain', 'dh_water']
+                              for value in [0.0, 0.4, 1.0]]:
     # Isolate surface lighting: sky-colored fog would hide a black-lightmap bug.
-    sources = [prepare(ROOT / (name + suffix), True, {}).replace(
+    sources = [prepare(ROOT / (name + suffix), True, {'SHADOW_DARKNESS': shadow_darkness}).replace(
         '#define ENABLE_FOG', '// Fog disabled for the lighting regression')
         for suffix in ['.vsh', '.fsh']]
     material = 'DH_BLOCK_WATER' if name == 'dh_water' else 'DH_BLOCK_GRASS'
@@ -285,11 +287,15 @@ for name in ['dh_terrain', 'dh_water']:
         assert all(math.isfinite(x) for x in pixel), (name, time, block, sky, tuple(pixel))
         luminances.append(sum(a*b for a,b in zip(pixel, [.299,.587,.114])))
     day, night, cave, torch = luminances
-    assert day > .08, (name, 'unlit daylight LOD', luminances)
-    assert night < day * .6 and cave < day * .6, (name, luminances)
+    lighting_results[name, shadow_darkness] = luminances
+    if shadow_darkness == 0.4:
+        assert day > .08, (name, 'unlit daylight LOD', luminances)
+        assert night < day * .6 and cave < day * .6, (name, luminances)
     assert torch > cave + .05, (name, 'missing block light', luminances)
-    print(f'PASS: {name} lighting with black lightmap: day/night/cave/torch = '
+    print(f'PASS: {name} lighting, shadow darkness {shadow_darkness}: day/night/cave/torch = '
           + '/'.join(f'{v:.3f}' for v in luminances))
+for name in ['dh_terrain', 'dh_water']:
+    assert lighting_results[name, 0.0][1] > lighting_results[name, 0.4][1] > lighting_results[name, 1.0][1], name
 
 # Reflections must validate the texel *after* wave displacement. Model a red
 # target surrounded by blue foreground/background/water/sky texels: only a
@@ -412,3 +418,49 @@ void main() {
             if distance is not None:
                 assert abs(pixel[1] - 1.) < .001, tuple(pixel)
 print('PASS: water and puddle ray marchers retain valid normal/DH reflections and reject sky.')
+
+# Exercise the actual composite pass: menu controls must affect the image
+# before posterization, and dithering must preserve average dark-tone energy.
+active_tex(0x84C2)
+bind_tex(0x0DE1, textures[2])
+tex_image(0x0DE1, 0, 0x8814, 8, 8, 0, 0x1908, 0x1406, None)
+bind(gl, 'glViewport', None, integer, integer, integer, integer)(0, 0, 8, 8)
+tone_vertex = vertex.replace('void main()', 'varying vec2 texcoord;\nvoid main()').replace(
+    'gl_Position =', 'texcoord = p;\n    gl_Position =')
+tones = [0., .003, .01, .04, .25, .5, .75, 1.]
+for dh in [False, True]:
+    results = {}
+    for brightness, contrast in [(-1.,1.), (0.,1.), (.5,1.), (1.,1.), (0.,0.), (0.,2.)]:
+        options = {'ENHANCED_CLOUDS': 0, 'BRIGHTNESS': brightness, 'CONTRAST': contrast}
+        program = make_program(tone_vertex, prepare(ROOT / 'composite.fsh', dh, options))
+        bind(gl, 'glUseProgram', None, uint)(program)
+        set_int(uniform(program, b'colortex0'), 2)
+        set_int(uniform(program, b'depthtex0'), 0)
+        set_int(uniform(program, b'dhDepthTex0'), 1)
+        for key in [b'viewWidth', b'viewHeight']:
+            set_float(uniform(program, key), 8.)
+        set_matrix(uniform(program, b'gbufferModelViewInverse'), 1, 0, identity)
+        projection(b'gbufferProjectionInverse', .05, 128)
+        projection(b'dhProjectionInverse', 4, 8192)
+        upload_reflection(0, [1.] * 256)
+        upload_reflection(1, [1.] * 256)
+        means = []
+        for tone in tones:
+            upload_reflection(2, [tone,tone,tone,1.] * 256, 4)
+            draw(0x0004, 0, 3)
+            pixels = (C.c_float * (8*8*4))()
+            read(0, 0, 8, 8, 0x1908, 0x1406, pixels)
+            assert all(math.isfinite(v) and 0. <= v <= 1. for v in pixels)
+            means.append(sum(pixels[::4]) / 64)
+        results[brightness, contrast] = means
+        assert all(a <= b for a,b in zip(means, means[1:])), means
+    original = results[0.,1.]
+    assert max(abs(a-b) for a,b in zip(original, tones)) < 1./(24*16), original
+    assert results[1.,1.][1] > .04, 'Brightness did not recover dark detail'
+    for i in range(1,7):
+        assert results[-1.,1.][i] <= original[i] < results[.5,1.][i] < results[1.,1.][i]
+    assert all(abs(v-.5) < .001 for v in results[0.,0.]), 'Contrast is not connected'
+    assert results[0.,2.][4] == 0. and results[0.,2.][6] == 1.
+    for brightness in [-1.,0.,.5,1.]:
+        assert results[brightness,1.][0] == 0. and results[brightness,1.][7] == 1.
+print('PASS: 96 composite renders verify brightness, contrast and dark-tone dithering with DH off/on.')

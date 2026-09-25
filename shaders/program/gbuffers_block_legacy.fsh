@@ -209,7 +209,7 @@ void main() {
       float sunStrength = getSunStrength() * dayBright;
       float shadowFactor = 1.0 - sunStrength;
 
-      ambient.rgb *= 1.0 - shadowFactor * 0.6;
+      ambient.rgb *= 1.0 - shadowFactor * SHADOW_AMBIENT_STRENGTH;
 
       float blueness = shadowFactor * SHADOW_BLUENESS;
       ambient.g *= 1.0 + 0.3333 * blueness;
