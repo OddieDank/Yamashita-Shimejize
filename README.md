@@ -10,7 +10,7 @@ I wanted to play minecraft with stylized shaders and distant horizons, i thought
 
 Also i play with a latitude 5420, so its potato friendly 
 
-**Status: alpha.5. Alpha.4 works well after extensive in-game testing. Alpha.5 connects brightness, contrast and surface shadow darkness controls and preserves dark tones during posterization. Automated checks pass; alpha.5 still needs in-game visual confirmation.** This is not an official release from the original author.
+**Status: alpha.5. Alpha.4 works well after extensive in-game testing. Alpha.5 connects brightness, contrast and surface shadow darkness controls and preserves dark tones during posterization. it looks good but, the clouds without enhanced mode look a little weird, and they are not LOD compatible, it still playable tho .** This is not an official release from the original author.
 
 ## Target environment
 
@@ -23,10 +23,9 @@ This adapts the shaderpack; it does not modify the Minecraft, Iris, or DH JARs. 
 
 ## Installation
 
-1. Run `python3 tools/build_pack.py` or use the generated ZIP in `dist/`.
-2. Copy `Yamashita-Shimejize-mc26.2-DH-alpha.5.zip` into your instance's `shaderpacks` folder.
-3. Select it in Iris. The ZIP contains `shaders/` directly at its root.
-4. Start with the LOW or NORMAL profile, a normal render distance of 8–12 chunks, and DH set to 128 chunks. Adjust based on performance.
+1. Copy `Yamashita-Shimejize-mc26.2-DH-alpha.5.zip` into your instance's `shaderpacks` folder.
+2. Select it in Iris. The ZIP contains `shaders/` directly at its root.
+3. Start with the LOW or NORMAL profile, a normal render distance of 8–12 chunks, and DH set to 128 chunks. Adjust based on performance.
 
 Enable shadows cast by LOD terrain using **Distant Horizons shadows** in the lighting options. They are disabled by default to limit rendering cost. Existing sunlight and nearby shadows remain available.
 
@@ -60,19 +59,6 @@ With **Enhanced Clouds off**, height comes from Minecraft's normal cloud rendere
 
 These remain screen-space reflections: off-screen and hidden geometry cannot be recovered, and rejected intersections can fade out. Check moving silhouettes, water/puddle edges and performance in the game.
 
-### Alpha.3: dark LODs and persistent silhouettes
-
-- **Near transition:** DH's API clip distance only removes the closest geometry. It still allowed coarse shapes beside nearby leaves and roofs. Terrain and water now fade in between 40% and 60% of the normal render distance, using cylindrical distance and the pack's Bayer dithering. At 8 normal chunks, that is approximately 51–77 blocks. The transition discards both color and depth; distant geometry remains fully visible. As with any distance-based transition, missing normal chunks can expose gaps while loading or flying quickly.
-- **Ambient light:** the installed DH 3.3.2 OpenGL renderer binds its lightmap on texture unit 0, while Iris 1.11.4's external `lightmap` sampler expects unit 2. Relying on that external binding in DH passes can produce black ambient light. LOD terrain and water now derive ambient light from their skylight levels and the pack's existing day/night/weather colors. Block lights, sunlight and shadows still use the existing lighting path. Normal terrain retains its original lightmap sampling. The LOD ambient approximation still needs visual comparison at the transition, including night and rain.
-
-The user-provided tutorial explains compatibility attributes, LOD vertex color, light levels, depth rejection and fog for Minecraft 1.20.6. The target-version JARs were also inspected: their texture binding and clipping behavior cannot be inferred from that older tutorial alone.
-
-### Alpha.2: nearby LOD overlap
-
-Terrain and water now explicitly use `dhProjection` when writing depth, matching `dhProjectionInverse` in the clipping and post-processing passes. With DH 3.3.2, the legacy projection used by `ftransform()` can have a different near plane: DH caps its raster projection near plane at 7.5 blocks in the usual case, while Iris builds `dhProjection` from DH's API clip distance. Mixing these matrices reconstructed incorrect distances.
-
-Both passes also apply DH's supplied `clipDistance` as a camera-relative radial exclusion. The old depth-only comparison could not remove simplified LODs protruding into sky pixels beside leaves and roofs. In-game testing showed this exclusion was insufficient; alpha.3 adds the wider transition described above.
-
 ## Reproducible validation
 
 On Linux with Python 3 and Mesa EGL/OpenGL installed:
@@ -93,7 +79,6 @@ Reflection tests add 18 cases for wave offsets, foreground/background boundaries
 
 ## Pending in-game checks
 
-- With alpha.5 selected, compare Brightness 0.0, 0.5 and 1.0 at night, keeping Contrast at 1.0. Check texture detail on nearby and distant terrain, torches, water, caves, daytime and rain.
 - Compare Shadow Darkness 0.0 and 0.4 on blocks and water; also check entity and block-entity shadows.
 - Visit the Nether and End and switch dimensions; measure performance on the target GPU.
 
